@@ -4,7 +4,7 @@ Review of the influence of survey weighting methodology on propensity score meth
 
 ### Tools 
 
-* MatchIt
+* MatchIt [https://cran.r-project.org/web/packages/MatchIt/MatchIt.pdf]
 * Twang
 * PSWeight
 
