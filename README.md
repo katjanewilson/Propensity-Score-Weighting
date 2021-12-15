@@ -1,6 +1,5 @@
 # Confounding Adjustment with Propensity Score Weighting
 
-We identify the effect of a special-education inclusion model on attendance rates in NYC public schools by matching the population of third grade classrooms in the 2017-2018 school year on a set of five covariates. Overlap weighting (Li, Thomas & Li 2019) results in the lowest standard error of the ATE, closely followed by Inverse Probability of Treatment Weighting.
 
 [Markdown Link](https://katjanewilson.github.io/Achieving-Balance-through-Weighting/)
 
