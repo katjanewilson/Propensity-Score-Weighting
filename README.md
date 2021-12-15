@@ -1,7 +1,7 @@
 # Confounding Adjustment with Propensity Score Weighting
 
 
-[Markdown Link](https://katjanewilson.github.io/Achieving-Balance-through-Weighting/)
+[Markdown Link](https://katjanewilson.github.io/Propensity-Score-Weighting/)
 
 ### Info
 
