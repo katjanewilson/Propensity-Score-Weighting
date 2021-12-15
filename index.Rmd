@@ -18,7 +18,9 @@ knitr::opts_chunk$set(echo = TRUE)
 Matching is a class of observational study methods that reduces the influence of covariate bias by matching each treatment individual to one or more control unit. In the presence of many confounding variables, matching is facilitated by the propensity score, which is a balancing score that takes into account all of these covariates and assigns a probability of the unit being in the treatment or control group. From here, units can be matched in a variety of ways: nearest neighbor matching, full matching, and mahalanobis distance matching, are some. In each of these methods, the goal is “match” subjects on observable characteristics, to make the treatment and control groups as similar as possible.
 
 
-These observable characteristics are crucial to achieving a balanced treatment and control sample. But a tradeoff of simple matching is that the study sample is now a fraction of the data. The ATT is also only internally valid for the matched sample, and the higher probability that some subjects have of being in the treatment group over others might be important yet ignored. The propensity score - the probability that the subject is in the treatment group or control- are full of information themselves. Propensity scores are not dependent on the treatment group, but rather dependent on the covariates’ relationship to the treatment. Weighting, therefore, is a method to assign a higher weight to subjects who are not likely to be in the treatment class, giving these units more information. Subjects who are not likely to be in the treatment are rare, and valuable. Units who are more likely to be in the treatment have repeated information and are down-weighted. In the same spirit of the manipulation that underlies much of causal inference, weighting helps creates a more balanced “pseudo-population” to proceed with a balanced analysis.
+These observable characteristics are crucial to achieving a balanced treatment and control sample. But a tradeoff of simple matching is that the study sample is now a fraction of the data. Additionally, the ATT is, under these methods, only internally valid for the matched sample. Even more, the higher probability that some subjects have of being in the treatment group over others might be important, yet is ignored. 
+
+However, the propensity scores - the probability that the subject is in the treatment group or control- have crucial information which might curtail some of these concerns. Propensity scores are not dependent on the treatment group, but rather are dependent on the covariates’ relationship to the treatment. Weighting is a method from the statistical survey literature whereby higher weights are assigned to subjects who are not likely to be in the treatment class. Using propensity scores, this method can be applied in the context of an observational study. Treated subjects who are not likely to be in the treatment are rare, and therefore have valuable information. Treated subjects more likely to be in the treatment have repeated information, and are down-weighted. In the same spirit of the manipulation that underlies much of causal inference, weighting helps creates a more balanced “pseudo-population” by which we can proceed with a balanced analysis.
 
 
 Such weighting of the propensity score is directly parallel to the Horvitz Thompson estimator (Horvitz and Thompson, 1952) in survey literature. The Horvitz Thompson estimator performs inverse probability weighting (gives each observation a weight which is the inverse of its probability of inclusion), and provides an unbiased estimator of the population total and population mean under unequal probability sampling. Using such survey weights, the estimate for the population mean becomes
@@ -27,7 +29,7 @@ Such weighting of the propensity score is directly parallel to the Horvitz Thomp
 
 $$\hat{y}HT = \frac{1}{N}\sum\limits_{i=1}^{n} w_i y_i $$
 
-Similarly, Inverse Probability Treatment Weighting (Rosenbaum 1987), assigns a higher weight to those units which are less likely to be included, just as units underrepresented in the sample compared to the population, are assigned a higher weight in the Horvitz-Thompson approach. A suite of balance diagnostics to assess balance between groups has been proposed by Austin and Stuart (Austin & Stuart 2015). The formula for the IPTW weights is below, where each subject is weighted by the inverse of their treatment probability.
+Similarly, Inverse Probability Treatment Weighting (Rosenbaum 1987), assigns a higher weight to those units which are less likely to be included, just as units underrepresented in the sample compared to the population, are assigned a higher weight in the Horvitz-Thompson approach. A suite of balance diagnostics to assess balance between groups has been proposed by Austin and Stuart (Austin & Stuart 2015). The formula for the IPTW weights, where each subject is weighted by the inverse of their treatment probability, is given by
 $$
 p(x)=P(Z=1 \mid X) \\
 \begin{equation}
@@ -39,15 +41,11 @@ p(x)=P(Z=1 \mid X) \\
 \end{equation}
 $$
 
-A second type of propensity score matching method is Standardized IP-weighting. Standardized weighting deals with the issue in IPTW weighting where individuals with PS close to 0 (those extremely unlikely to be treated) will end up with a very large weight, making the estimator unstable. Standardized weights use the marginal probability of treatment instead of 1 in the weight numerator. This example is parallel to standardized weights in survey literature, where weighting techniques like standardized weighting are used to address issues with low response rates, caused by survey coverage and unit nonresponse. 
+A second type of propensity score matching, Standardized IP-weighting, deals with the issues in IPTW weighting where individuals with propensity scores close to 0 (those extremely unlikely to be treated) end up with a very large weight. Large weights result in unstable estimators. Standardized weights use the marginal probability of treatment instead of 1 in the weight numerator. This example is parallel to standardized weights in survey literature, where weighting techniques like standardized weighting are used to address issues with low response rates, caused by survey coverage and unit nonresponse. 
 
-In the worked example that will follow, we have a population of schools which are matched on a set of five observable covariates. In this case, a very small number of schools (high poverty, low-minority schools) are unlikely to be in the treatment. When these schools do appear in the treatment, we want to give their information as much weight as possible. IPTW helps to retain most of the individuals in the analysis, increasing the effective sample size. And in another similarity with survey literature, as I will note in the worked example, weighting uses the survey package directly.
+In the worked example that will follow, a population of schools in NYC are matched on a set of five observable covariates. In this case, a very small number of schools (high poverty, low-minority schools) are unlikely to be in the treatment. When these schools do appear in the treatment, we want to give their information as much weight as possible. IPTW helps to retain most of the individuals in the analysis, increasing the effective sample size. 
 
-
-
-
-
-## Part 1: Data Import
+## Regression Estimates
 
 Regular regression estimates show treatment is sig predictor of PA
 
@@ -98,9 +96,9 @@ employ.data[1,3]<- mod1$coefficients[[2]]
 employ.data[1,4]<- coef(summary(mod1))[, "Std. Error"][[2]]
 ```
 
-## Part 2: Propensity Score Matching and Nearest Neighbor Matching
+## Propensity Score Matching
 
-Nearest neighbor matching improves balance on all five covariates. Store model results.
+Logistic regression to predict treatment by five covariates creates the propensity score. Matching on propensity score does little to improve covariate balance. Nearest neighbor will do more.
 ```{r message=FALSE, warning=FALSE, include=TRUE}
 
 ### propensity score, just a logit model
@@ -127,7 +125,6 @@ working_data %>%
 prop_matched <- matchit(treatment ~ PercentBlack + PercentSWD + PercentPoverty + TotalEnrollment +
                           ENI, family = binomial(), data = working_data)
 prop_matched2 <- match.data(prop_matched)
-summary(prop_matched)
 
 library(cobalt)
 ## only one covariate (TotalEnrollment) was balanced after PSM
@@ -139,7 +136,9 @@ employ.data[2,4]<- coef(summary(mod2))[, "Std. Error"][[2]]
 
 ```
 
-## Part 3: Nearest Neighbor Matching 
+## Nearest Neighbor Matching 
+
+Nearest neighbor matching matches each unit with nearest neighbor in a 4:1 ratio of control to treatment units. Nearest neighbor matching improves balance for all five covariates, and crosses 0.1 standardized mean difference threshold.
 
 ```{r message=FALSE, warning=FALSE, include=TRUE}
 
@@ -205,6 +204,8 @@ print(ecls_table, smd=T)
 ``` 
 
 ### IPTW and SW 
+
+IPTW and SW will keep all observations in the set.
 
 ```{r message=FALSE, warning=FALSE, include=TRUE}
 data <- data.frame("covariate" = c("PercentBlack", "PercentSWD",
@@ -286,7 +287,6 @@ A limitation, as with all other PS methods, is that researchers are at the whim 
 
 ### the PSweight package
 working_data <- read_csv("data/working_data.csv")
-table(working_data$treatment)
 out.formula <- Y~PercentBlack + PercentSWD + PercentPoverty+TotalEnrollment+
   ENI
 #train on model with treatment group 1
@@ -305,17 +305,8 @@ msstat <- SumStat(ps.formula, trtgrp="1", data=data1,
                   weight=c("IPW","overlap","treated","entropy","matching"))
 plot(msstat, type="balance", metric = "PSD")
 
-### then use the PSweight function to get ATE for IPW
-ate.any <- PSweight(ps.formula = ps.formula,
-                    yname = "Y", data = data1,
-                    weight= "IPW")
-# estimated average potential outcomes for the treatment
-# average percent attendance for those with inclusion and not
-ate.any
 
-
-
-### then use the PSweight function to get ATE for Overlap
+### PSweight to identify ATE for Overlap
 ate.any <- PSweight(ps.formula = ps.formula,
                     yname = "Y", data = data1,
                     weight= "overlap")
@@ -327,8 +318,6 @@ summary(ate.any)
 employ.data[7,2]<- nrow(data)
 employ.data[7,3]<- 0.72475
 employ.data[7,4]<- 0.173
-
-
 
 
 ### print table
