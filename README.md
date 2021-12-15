@@ -1,7 +1,7 @@
 # Achieving Balance through Weighting
 ## The influence of Survey Weighting Methods on Propensity Score Matching
 
-Review of the influence of survey weighting methodology on propensity score methods, where weights are put on sampling units to help make the sample as representative of the population as possible. This paper reviews how weighting schemes in propensity score matching are intimately tied to the survey literature, both in their technical foundations, and the limitations that accompany them.
+Weighting schemes in propensity score matching are intimately tied to the survey literature, both in their technical foundations, and the limitations that accompany them. In this analysis, I identify the effect of special-education inclusion model on attendance rates in NYC public schools, by matching the population of third grade classrooms in the 2017-2018 school year on five covariates. Overlap weight result in lowest standard error, closely followed by IPTW.
 
 [Markdown Version](https://katjanewilson.github.io/Achieving-Balance-through-Weighting/)
 
