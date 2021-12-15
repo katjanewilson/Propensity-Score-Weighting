@@ -1,28 +1,341 @@
 ---
-title: "index"
-output: html_document
+title: "Achieving Balance through Weighting"
+output:
+  html_document:
+   theme: united
+   toc: true
+   toc_float: true
+
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## R Markdown
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+## Overview
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+Matching is a class of observational study methods that reduces the influence of covariate bias by matching each treatment individual to one or more control unit. In the presence of many confounding variables, matching is facilitated by the propensity score, which is a balancing score that takes into account all of these covariates and assigns a probability of the unit being in the treatment or control group. From here, units can be matched in a variety of ways: nearest neighbor matching, full matching, and mahalanobis distance matching, are some. In each of these methods, the goal is “match” subjects on observable characteristics, to make the treatment and control groups as similar as possible.
 
-```{r cars}
-summary(cars)
+
+These observable characteristics are crucial to achieving a balanced treatment and control sample. But a tradeoff of simple matching is that the study sample is now a fraction of the data. The ATT is also only internally valid for the matched sample, and the higher probability that some subjects have of being in the treatment group over others might be important yet ignored. The propensity score - the probability that the subject is in the treatment group or control- are full of information themselves. Propensity scores are not dependent on the treatment group, but rather dependent on the covariates’ relationship to the treatment. Weighting, therefore, is a method to assign a higher weight to subjects who are not likely to be in the treatment class, giving these units more information. Subjects who are not likely to be in the treatment are rare, and valuable. Units who are more likely to be in the treatment have repeated information and are down-weighted. In the same spirit of the manipulation that underlies much of causal inference, weighting helps creates a more balanced “pseudo-population” to proceed with a balanced analysis.
+
+
+Such weighting of the propensity score is directly parallel to the Horvitz Thompson estimator (Horvitz and Thompson, 1952) in survey literature. The Horvitz Thompson estimator performs inverse probability weighting (gives each observation a weight which is the inverse of its probability of inclusion), and provides an unbiased estimator of the population total and population mean under unequal probability sampling. Using such survey weights, the estimate for the population mean becomes
+
+
+
+$$\hat{y}HT = \frac{1}{N}\sum\limits_{i=1}^{n} w_i y_i $$
+
+Similarly, Inverse Probability Treatment Weighting (Rosenbaum 1987), assigns a higher weight to those units which are less likely to be included, just as units underrepresented in the sample compared to the population, are assigned a higher weight in the Horvitz-Thompson approach. A suite of balance diagnostics to assess balance between groups has been proposed by Austin and Stuart (Austin & Stuart 2015). The formula for the IPTW weights is below, where each subject is weighted by the inverse of their treatment probability.
+$$
+p(x)=P(Z=1 \mid X) \\
+\begin{equation}
+  \hat{w}(IPTW) =
+    \begin{cases}
+      \frac{1}{\pi} for T_ij =1\\
+      \frac{1}{1-\pi} for T_ij = 0\\
+    \end{cases}       
+\end{equation}
+$$
+
+A second type of propensity score matching method is Standardized IP-weighting. Standardized weighting deals with the issue in IPTW weighting where individuals with PS close to 0 (those extremely unlikely to be treated) will end up with a very large weight, making the estimator unstable. Standardized weights use the marginal probability of treatment instead of 1 in the weight numerator. This example is parallel to standardized weights in survey literature, where weighting techniques like standardized weighting are used to address issues with low response rates, caused by survey coverage and unit nonresponse. 
+
+In the worked example that will follow, we have a population of schools which are matched on a set of five observable covariates. In this case, a very small number of schools (high poverty, low-minority schools) are unlikely to be in the treatment. When these schools do appear in the treatment, we want to give their information as much weight as possible. IPTW helps to retain most of the individuals in the analysis, increasing the effective sample size. And in another similarity with survey literature, as I will note in the worked example, weighting uses the survey package directly.
+
+
+
+
+
+## Part 1: Data Import
+
+Regular regression estimates show treatment is sig predictor of PA
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+### import data
+
+#libraries
+library(MatchIt)
+library(readr)
+library(tidyverse)
+library(gridExtra)
+library(survey)
+library(PSweight)
+library(tableone)
+
+## blank data
+type <- c('regression', 'propensity score',
+          'nearest neighbor', 'iptw', 
+          'sw', 'trimmed', 'overlap')
+N <- c('770', '770',
+          '300',  '300',
+          'nn_standardized', 'trimmed', 'overlap')
+estimate <- c(NA, NA, NA, NA, NA, NA, NA)
+se <- c(NA, NA, NA,  NA, NA, NA, NA)
+employ.data <- data.frame(type,N, estimate, se)
+
+############# Part 1: unmatched
+working_data <- read_csv("data/working_data.csv")
+# overview of data
+working_data %>%
+  group_by(treatment) %>%
+  summarise(mean_attendance = mean(AllStudents_PA),
+            mean_chronic_absent = mean(AllStudents_CA))
+# unmatched covariate differences, all are sig, 5 covariates
+working_data %>%
+  group_by(treatment) %>%
+  summarise(mean_PercentBlack = mean(PercentBlack),
+            mean_PercentSWD = mean(PercentSWD),
+            mean_PercentPoverty = mean(PercentPoverty),
+            mean_TotalEnrollment = mean(TotalEnrollment),
+            mean_ENI = mean(ENI))
+table(working_data$treatment)
+
+### ummatched effect
+mod1<- lm(AllStudents_PA ~ treatment, data = working_data)
+summary(mod1)
+employ.data[1,3]<- mod1$coefficients[[2]]
+employ.data[1,4]<- coef(summary(mod1))[, "Std. Error"][[2]]
 ```
 
-## Including Plots
+## Part 2: Propensity Score Matching and Nearest Neighbor Matching
 
-You can also embed plots, for example:
+Nearest neighbor matching improves balance on all five covariates. Store model results.
+```{r message=FALSE, warning=FALSE, include=TRUE}
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+### propensity score, just a logit model
+m_ps<- glm(treatment ~ PercentBlack + PercentSWD + PercentPoverty + TotalEnrollment +
+             ENI, family = binomial(), data = working_data)
+summary(m_ps)
+# the PS is the predicted probability
+prs_df <- data.frame(pr_score = predict(m_ps, type = "response"),
+                     treatment = m_ps$model$treatment)
+head(prs_df)
+## region of common support
+working_data <- cbind(working_data, prs_df$pr_score)
+names(working_data)[names(working_data) == "prs_df$pr_score"]<- "propensity_score"
+### distribution
+working_data %>%
+  ggplot(aes(x=propensity_score)) +
+  geom_histogram(color = "white") +
+  facet_wrap(~treatment) +
+  xlab("Probability of Inclusion Treatment") +
+  theme_bw()
+
+## propensity score model
+### ummatched effect
+prop_matched <- matchit(treatment ~ PercentBlack + PercentSWD + PercentPoverty + TotalEnrollment +
+                          ENI, family = binomial(), data = working_data)
+prop_matched2 <- match.data(prop_matched)
+summary(prop_matched)
+
+library(cobalt)
+## only one covariate (TotalEnrollment) was balanced after PSM
+bal.tab(prop_matched, m.threshold = 0.1)
+mod2<- lm(AllStudents_PA ~ treatment, data = prop_matched2)
+employ.data[2,2]<- nrow(prop_matched2)
+employ.data[2,3]<- mod2$coefficients[[2]]
+employ.data[2,4]<- coef(summary(mod2))[, "Std. Error"][[2]]
+
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+## Part 3: Nearest Neighbor Matching 
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+
+############# Part 3: Nearest Neighbor Matching
+# nearest neighbor matching, only use the observations in the region of common support
+school_nearest <- matchit(formula = treatment ~ ENI +PercentBlack + PercentSWD +TotalEnrollment +
+                            PercentPoverty, 
+                          data = working_data,
+                          method = "nearest",
+                          family = "binomial",
+                          caliper = 0.25,
+                          ratio = 4)
+bal.tab(school_nearest, m.threshold = 0.1)
+p1<- bal.plot(school_nearest, var.name = 'TotalEnrollment', which = "both")
+p2<- bal.plot(school_nearest, var.name = 'PercentPoverty', which = "both")
+p3<- bal.plot(school_nearest, var.name = 'PercentSWD', which = "both")
+p4<- bal.plot(school_nearest, var.name = 'PercentBlack', which = "both")
+p5<- bal.plot(school_nearest, var.name = 'ENI', which = "both")
+gl<- list(p1,p2, p3,p4, p5)
+grid.arrange(
+  grobs = gl,
+  top=textGrob("Nearest Neighbor Matched"))
+#create the matched set, only 364 schools are matched
+nearest_matched <- match.data(school_nearest)
+
+### examine the covariate balance in the matched sample, shows that the matching is good
+fn_bal <- function(nearest_matched, variable) {
+  nearest_matched$variable <- nearest_matched[, variable]
+  nearest_matched$treatment <- as.factor(nearest_matched$treatment)
+  support <- c(min(nearest_matched$variable), max(nearest_matched$variable))
+  ggplot(nearest_matched, aes(x = distance, y = variable, color = treatment)) +
+    geom_point(alpha = 0.2, size = 1.3) +
+    geom_smooth(method = "loess", se = F) +
+    xlab("Propensity score") +
+    ylab(variable) +
+    theme_bw() +
+    ylim(support)
+}
+grid.arrange(
+  fn_bal(nearest_matched, "PercentPoverty"),
+  fn_bal(nearest_matched, "PercentSWD") + theme(legend.position = "none"),
+  fn_bal(nearest_matched, "PercentBlack"),
+  fn_bal(nearest_matched, "ENI") + theme(legend.position = "none"),
+  fn_bal(nearest_matched, "TotalEnrollment"),
+  nrow = 3, widths = c(1, 0.8)
+)
+
+## estimating treatment effects
+mod3 <- lm(AllStudents_PA ~ treatment, data = nearest_matched)
+summary(mod3)
+employ.data[3,2]<- nrow(nearest_matched)
+employ.data[3,3]<- mod3$coefficients[[2]]
+employ.data[3,4]<- coef(summary(mod3))[, "Std. Error"][[2]]
+t<- bal.tab(school_nearest, m.threshold = 0.1)[[1]]
+p<- bal.tab(prop_matched, m.threshold = 0.1)[[1]]
+cov <- c("PercentBlack" , "PercentSWD", "PercentPoverty", "TotalEnrollment",  "ENI")
+### the SMD is still high
+ecls_table <- CreateTableOne(vars=cov,strata="treatment",data=working_data,test=F,
+                             smd=T)
+print(ecls_table, smd=T)
+
+
+``` 
+
+### IPTW and SW 
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+data <- data.frame("covariate" = c("PercentBlack", "PercentSWD",
+                                      "PercentPoverty", "TotalEnrollment",
+                                      "ENI"),
+                   "SMD Unmatched" = c(0.470, 0.458,
+                                  1.041, 0.648, 0.906),
+                   "Propensity Score" = c( -0.170,-0.286,
+                                       -0.550, -0.051, -0.476),
+                   "Nearest Neighbor" = c(0.0057, 0.0148,
+                                          -0.0328, -0.066, -0.044))
+
+
+
+############# Part 4: Nearest Neighbor Matching and IPTW
+## IPTW
+# using the original PS scores on the unmatched dataset
+working_data$treatment_identifier <- ifelse(working_data$treatment == 1, "inclusion", "non-inclusion")
+working_data$iptw <- ifelse(working_data$treatment_identifier == 'inclusion', 1/(working_data$propensity_score),
+                            1/(1-working_data$propensity_score))
+
+#stabilized weights
+working_data$stable.iptw <- ifelse(working_data$treatment_identifier == 'inclusion',
+                                   (mean(working_data$propensity_score))/working_data$propensity_score,
+                                   mean(1-working_data$propensity_score)/(1-working_data$propensity_score))
+
+## Weighted Data, using the survey design package
+working_data_weighted <- svydesign(ids = ~1, data= working_data, weights= working_data$iptw)
+
+## balance of each in the unweighted sample
+data<- working_data_weighted$variables
+mod4 <- lm(AllStudents_PA ~ treatment, weights = data$iptw, data = data)
+employ.data[4,2]<- nrow(data)
+employ.data[4,3]<- mod4$coefficients[[2]]
+employ.data[4,4]<- coef(summary(mod4))[, "Std. Error"][[2]]
+
+## stable
+mod5 <- lm(AllStudents_PA ~ treatment, weights = data$stable.iptw, data = data)
+employ.data[5,2]<- nrow(data)
+employ.data[5,3]<- mod5$coefficients[[2]]
+employ.data[5,4]<- coef(summary(mod5))[, "Std. Error"][[2]]
+
+```
+
+## Issues with Weighting: Large Weights, Weight Trimming, and Generalization
+
+One concern regarding propensity score weighting is that observations with extremely large weights may over-influence results and yield estimates with high variance. In that case, a common recommendation is to trim observations with large survey weights. The suggestion of weight trimming also comes directly from survey design methods (Potter 1993), where weight trimming has been shown to reduce the sampling variance estimate. The tradeoffs suggested from the survey literature parallel the tradeoffs we will see for weight trimming in PS methods: larger sample variance or substantial bias might result for some survey estimates, despite the overall decrease of variance.
+	
+Trimmed weighting generally takes two approaches. In one approach (Crump et al 2009), researchers employ a “min max” approach, excluding patients whose PS is outside of the range of this cutoff. Another approach is to exclude subjects who fall below a certain quantile of the propensity score distribution in either treatment of control group. For instance, Sturmer et al 2010 trim the propensity scores in treated patients at the lower end of the propensity score distribution and in untreated patients at the higher end of the propensity score distribution. In either approach, weight trimming improves the accuracy and precision of the final parameter estimates (Lee, Lessler & Stuart, 2011). 
+
+$$
+\hat{w}_{ij}, IPW-T = \hat{w}_{ij},IPW{\hat{w}_{ij},IPW<c}
+$$
+
+Determining the optimal amount of trimming is unfortunately arbitrary, and bias is likely to result. Analysts are advised to investigate the procedures that led to the generation of the weights (proper specification of the PS) rather than methods like weight trimming. Better specification of the PS model, popularly done by machine learning methods (Hill 2011), is an option. Also mentioned, in both trimming examples, the choice of threshold might be arbitrary. More importantly, trimming results in increased bias in estimates, as well as a reduced sample size.
+As a final conceptual challenge to trimming methods, trimming results in an ambiguous target population that is difficult for stakeholders to interpret. In the NYC Schools example below, would generalizing the effect of gifted/talented programs to “schools that fall within the 85th quantile of the propensity score” be interpretable to policy makers? Taking the steps to translate the generalizability of an effect based on a certain subset of the PS distribution quickly becomes quantitatively convenient, but conceptually daunting at the policy level. This problem is especially of note under situations of heterogeneous treatment effects. When the treatment effects are constant across the distribution of the covariates, then weight trimming might be ok, but when the treatment effects vary across the distribution of covariates (such as lower income schools benefitting more from GT programs), then weight trimming is less than ideal.
+
+
+## Overlap Weights
+
+Overlap weights (Li, Thomas, Li, 2019) emphasize the target population with the most overlap in observed characteristics between treatments. The treated patients are weighted by the probability of not receiving the treatment, and the untreated by their probability of receiving the treatment. Tails of the PS distribution are down weighted, rather than trimmed. The weights are smaller for extreme PS values, so that outliers who are nearly always treated (PS near 1) or never treated (PS near 0) do not dominate the results (which occurs with IPTW). Observations with propensity scores closest to 0.5 make the largest contribution.
+
+$$
+\begin{equation}
+  \hat{w_{ij}}(OW) =
+    \begin{cases}
+      1-\hat{\pi_{ij}} for T_ij =1\\
+      \hat{\pi}_{ij} for T_ij = 0\\
+    \end{cases}       
+\end{equation}
+$$
+
+An advantage of overlap weighting is that they lead to exact balance on the mean of every measured covariate when the PS is estimated by logistic regression. All weights are bounded between 0 and 1 by design, eliminating the need for weight trimming. The approach might be particularly useful in the era of big data, where inclusion criteria is defined more broadly. Large data sources, with many possible covariates, also provoke the desire to clarify best practices for handling extreme propensity scores. Additionally, the estimator that results from using the overlap weights have minimum asymptotic variance (Li, Thomas, Li, 2019).
+A limitation, as with all other PS methods, is that researchers are at the whim of which covariates you include in your model. Additionally, the ATE is now in reference to the target population, which is the overlap population. The estimation of the treatment could be for a subpopulation that does not reflect people who receive the treatment in routine care. In our NYC example, we might be estimating people who have no chance of the treatment.
+
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+
+
+### the PSweight package
+working_data <- read_csv("data/working_data.csv")
+table(working_data$treatment)
+out.formula <- Y~PercentBlack + PercentSWD + PercentPoverty+TotalEnrollment+
+  ENI
+#train on model with treatment group 1
+data1<- working_data %>%
+  select(treatment, PercentBlack, PercentSWD, PercentPoverty, TotalEnrollment,
+         ENI, AllStudents_PA, AllStudents_CA) %>%
+  rename(trt = treatment,
+         Y = AllStudents_PA,
+         Y2 = AllStudents_CA)
+data1 <- as.data.frame(data1)
+
+### example 2: the balance plot
+ps.formula<- trt~PercentBlack + PercentSWD + PercentPoverty+TotalEnrollment+
+  ENI
+msstat <- SumStat(ps.formula, trtgrp="1", data=data1,
+                  weight=c("IPW","overlap","treated","entropy","matching"))
+plot(msstat, type="balance", metric = "PSD")
+
+### then use the PSweight function to get ATE for IPW
+ate.any <- PSweight(ps.formula = ps.formula,
+                    yname = "Y", data = data1,
+                    weight= "IPW")
+# estimated average potential outcomes for the treatment
+# average percent attendance for those with inclusion and not
+ate.any
+
+
+
+### then use the PSweight function to get ATE for Overlap
+ate.any <- PSweight(ps.formula = ps.formula,
+                    yname = "Y", data = data1,
+                    weight= "overlap")
+# estimated average potential outcomes for the treatment
+# average percent attendance for those with inclusion and not
+ate.any
+### sig effect with the IPTW
+summary(ate.any)
+employ.data[7,2]<- nrow(data)
+employ.data[7,3]<- 0.72475
+employ.data[7,4]<- 0.173
+
+
+
+
+### print table
+library(kableExtra)
+employ.data %>%
+  kbl(caption = "Weighting Scheme Differences") %>%
+  kable_classic(full_width = F, html_font = "Times New Roman")
+
+
+```
