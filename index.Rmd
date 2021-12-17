@@ -1,6 +1,6 @@
 ---
 title: 'Propensity Score Weighting for Covariate Adjustment'
-author: "Katherine Wilson"
+author: "Kat Wilson"
 date: '`r Sys.Date()`'
 output:
   html_document:
