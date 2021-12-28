@@ -1,6 +1,6 @@
 
 
-# Confounding Adjustment with Propensity Score Weighting <img src="man/figures/logo.png" align="right" width="150"/>
+# Confounding Adjustment with Propensity Score Weighting
 
 
 ### Project Page
@@ -74,10 +74,6 @@ working_data_weighted <- svydesign(ids = ~1, data= working_data, weights= workin
 data<- working_data_weighted$variables
 mod4 <- lm(AllStudents_PA ~ treatment, weights = data$iptw, data = data)
 ```
-
-<img src="man/figures/README-unnamed-chunk-5-1.png" style="display: block; margin: auto;" />
-
-Theory of overlap weights given by PSWeight` is described by [Li, Fan, Li (2009)](https://academic.oup.com/aje/article/188/1/250/5090958)
 
 ### Citations
 
