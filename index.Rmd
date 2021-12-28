@@ -37,11 +37,11 @@ pre code {
 
 ## Introduction
 
-Matching is a class of observational study methods that reduces the influence of covariate bias by matching each treatment unit to one or more control units. In the presence of many confounding variables, matching is facilitated by the propensity score, a balancing score that takes into account all measured covariates and assigns a probability of the unit being in the treatment or control group. From here, units can be matched in a variety of ways: nearest neighbor matching, full matching, and mahalanobis distance matching are some. In each of these methods, the goal is to “match” subjects on observable characteristics in an effort to make treatment and control groups as similar as possible.
+Matching is a class of observational study methods that helps to reduce the influence of covariate bias in statistical analyses. Using matching methods, a treatment unit is paired with one or more control units that are similar on observed variables. In the presence of many confounding variables, matching is facilitated by the propensity score, a balancing score that takes into account all measured covariates and assigns a probability of the unit being in either the treatment or control group. From here, units are matched in a variety of ways: nearest neighbor matching, full matching, and mahalanobis distance matching, to name a few. In each of these methods, the goal is to “match” subjects on observable characteristics in an effort to make the treatment and control groups as similar as possible.
 
-Matching on observable characteristics is crucial to achieving a balanced treatment and control sample. But tradeoffs of the matching method should be considered. For one, the study sample is now a fraction of the data in the population. Indeed, only units with a "match" are included. Additionally, the Average Treatment Effect of the Treated (ATT) is, under these methods, only internally valid for the matched sample. Even more, the higher probability that some subjects have of being placed in the treatment group over other subjects is inappropriately ignored.
+Matching on observable characteristics is crucial to achieving a balanced treatment and control sample. But tradeoffs of the matching method should be considered. For one, the study sample is now a fraction of the overall data in the population. Indeed, only units with a "match" are included in the analyses. Additionally, the Average Treatment Effect of the Treated (ATT) is, under these methods, only internally valid for the matched sample. Even more, the higher probability that some subjects have of being placed in the treatment group over other subjects being placed in the treatment group is inappropriately ignored.
 
-The tradeoffs of matching can be addressed a more nuanced treatment of the propensity score. The propensity scores- the probability that a subject is in the treatment group or control group- have crucial information which might curtail some of the listed concerns about matching. We will use a sample of NYC open data to compare the capabiltiies of each weighting method, and the influence from survey literature. 
+These tradeoffs in matching can be addressed with a more nuanced treatment of the propensity score. The propensity score- the probability that a subject is in the treatment group or control group- has crucial information which might curtail some of the listed concerns about matching. Using data from NYC public schools, we can compare the capabilties of various weighting method, noting their history from the survey literature. 
 
 ```{r message=FALSE, warning=FALSE, include=FALSE}
 ### import data
@@ -74,32 +74,32 @@ working_data <- read_csv("data/working_data.csv")
 head(working_data)
 ```
 
-The statistical quantity of interst is the causal effect of the treatment (inclusion) on attendance and chronic absenteeism. The other variables are pre-treatment covariates. In what follows, I will use the `MatchIt` package along with weighting pacakges to compare how estiamtes of the ATE and the ATT vary based on weighting scheme.
+In this analysis, the statistical quantity of interest is the causal effect of the treatment (inclusion) on attendance and chronic absenteeism for public school students in NYC. The additional variables will servce as pre-treatment covariates. In what follows, I will use the `MatchIt` package along with weighting packages to compare how estimates of the ATE and the ATT vary based on weighting scheme.
 
 ## Review of Weighting 
-Weighting is a method from the statistical survey literature where higher weights are attached to subjects who are underrepresented in the sample compared to their proportion in the true population. Using propensity scores, weighting can be applied in the context of an observational study. Treated subjects who are not likely to be in the treatment are rare, and therefore have valuable information. Treated subjects more likely to be in the treatment have repeated information, and are down-weighted. In the same spirit of the manipulation that underlies much of causal inference, weighting helps creates a more balanced “pseudo-population” by which we can proceed with a balanced analysis.
+Weighting, a method from the statistical survey literature, attaches higher weights to subjects who are underrepresented in the sample compared to their proportion in the true population. Using propensity scores, weighting can be applied in the context of an observational study. Treated subjects who are not likely to be in the treatment are rare, and therefore have valuable information. Treated subjects are, on the other hand, more likely to be in the treatment. Therefore, they have repeated information, and these observations are down-weighted. In the same spirit of the manipulation that underlies much of causal inference, weighting helps creates a more balanced “pseudo-population” by which we can proceed with a balanced analysis.
 
-Weighting of the propensity score is directly parallel to the Horvitz Thompson estimator (@horvitz1952generalization) in survey literature. The Horvitz Thompson estimator performs inverse probability weighting (gives each observation a weight which is the inverse of its probability of inclusion), and provides an unbiased estimator of the population total and population mean under unequal probability sampling. Using such survey weights, the estimate for the population mean becomes
+Weighting of the propensity score is directly parallel to the Horvitz Thompson estimator (@horvitz1952generalization) in survey literature. The Horvitz Thompson estimator performs inverse probability weighting (by giving each observation a weight which is the inverse of its probability of inclusion), and provides an unbiased estimator of the population total and population mean under unequal probability sampling. Using such survey weights, the estimate for the population mean becomes
 
 
 
 $$\hat{y}HT = \frac{1}{N}\sum\limits_{i=1}^{n} w_i y_i $$
 
-Similarly, Inverse Probability Treatment Weighting (@rosenbaum1987model), assigns a higher weight to those units which are less likely to be included, just as units underrepresented in the sample compared to the population, are assigned a higher weight in the Horvitz-Thompson approach. The formula for the IPTW weights, where each subject is weighted by the inverse of their treatment probability, is given by
+Similarly, Inverse Probability Treatment Weighting (@rosenbaum1987model), will assign a higher weight to those units which are less likely to be included, just as units underrepresented in the sample compared to the population, are assigned a higher weight in the Horvitz-Thompson approach. The formula for the IPTW weights, where each subject is weighted by the inverse of their treatment probability, is given by
 $$
 p(x)=P(Z=1 \mid X) \\
 \begin{equation}
   \hat{w}(IPTW) =
     \begin{cases}
-      \frac{1}{\pi} for T_ij =1\\
-      \frac{1}{1-\pi} for T_ij = 0\\
+      \frac{1}{\pi}\    \ for\ \ T_ij =1\\
+      \frac{1}{1-\pi} \  \ for \ \ T_ij = 0\\
     \end{cases}       
 \end{equation}
 $$
 
 A second type of propensity score matching, Standardized IP-weighting, deals with the issues in IPTW weighting where individuals with propensity scores close to 0 (those extremely unlikely to be treated) end up with a very large weight. Large weights result in unstable estimators. Standardized weights use the marginal probability of treatment instead of 1 in the weight numerator. This example is parallel to standardized weights in survey literature, where weighting techniques like standardized weighting are used to address issues with low response rates, caused by survey coverage and unit nonresponse. 
 
-In the worked example that will follow, a population of schools in NYC are matched on a set of five observable covariates. In this case, a very small number of schools (high poverty, high minority schools) are unlikely to be in the treatment. When these schools do appear in the treatment, weighting helps to give their information as much influence as possible. IPTW also addresses one of the main limitations of matching- reduction in sample size. With IPTW, all subjects remain in the analysis. The same is true of overlap weights.
+In the worked example that will follow, a population of schools in NYC is matched on a set of five observable covariates. In this case, a very small number of schools (high poverty, high minority schools) are unlikely to be in the treatment condition. When these schools do recieve the treatment, weighting helps to give their information as much influence as possible. IPTW also addresses one of the main limitations of matching- reduction in sample size. With IPTW, all subjects remain in the analysis. The same is true of overlap weights.
 
 ## Matched Estimation
 
@@ -315,8 +315,8 @@ $$
 \begin{equation}
   \hat{w_{ij}}(OW) =
     \begin{cases}
-      1-\hat{\pi_{ij}} for T_ij =1\\
-      \hat{\pi}_{ij} for T_ij = 0\\
+      1-\hat{\pi_{ij}}  \  \ for  \  \ T_ij =1\\
+      \hat{\pi}_{ij}  \  \ for  \  \ T_ij = 0\\
     \end{cases}       
 \end{equation}
 $$
