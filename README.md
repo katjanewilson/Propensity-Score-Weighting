@@ -11,8 +11,7 @@
 
 ### Overview
 
-Matching is a class of observational study methods that helps to r
-methods of matching for covariate balance in observational study methods that helps to reduce the influence of covariate bias on statistical analyses. Using insights from survey methodology, I compare methods of applying survey weights to sampling units to help make the sample as representative of the population as possible. Weighting schemes in propensity score matching are intimately tied to the survey literature, both in their technical foundations, and the limitations that accompany them.
+Matching is a class of observational study methods that helps to reduce the influence of covariate bias on statistical analyses. Imbalance between treatment and control groups however, is a common issue that researchers encounter when working with a matched sample. By attaching weights to observations, researchers can work around this imbalance and still obtain a reliable average treatment effect estimate. Such weighting schemes are intimately tied to the survey sampling literature, both in their technical foundation and their general limitations.
 
 
 ``` r
