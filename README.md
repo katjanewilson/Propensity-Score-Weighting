@@ -11,7 +11,7 @@
 
 ### Overview
 
-Matching is a class of observational study methods that reduces the influence of covariate bias by matching each treatment unit to one or more control units. A common issue that researchers encounter when working with a matched sample is imbalance in the covariate distribution between the two groups. With weighting, researchers can work around this imbalance and still obtain a reliable average treatment effect estimate. Such weighting schemes are intimately tied to the survey sampling literature, both in their technical foundation and their general limitations.
+Matching is a class of observational study methods that reduces the influence of covariate bias by matching each treatment unit to one or more control units. A common issue that researchers encounter when working with a matched sample is imbalance in the covariate distribution between the two groups. With weighting, researchers can work around this imbalance and still obtain a reliable average treatment effect estimate. Such weighting schemes are intimately tied to the survey sampling literature, both in their technical foundations and general limitations.
 
 
 ``` r
