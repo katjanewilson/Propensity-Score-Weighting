@@ -13,15 +13,16 @@
 
 Matching is a class of observational study methods that reduces the influence of covariate bias by matching each treatment unit to one or more control units. A common issue that researchers encounter when working with a matched sample is imbalance in the covariate distribution between the two groups. Weighting helps to retain a reliable average treatment effect estimate in the presence of covariate imbalance. Such weighting schemes are intimately tied to the survey sampling literature, both in their technical foundations and general limitations.
 
+Using the population of third grade public school classrooms in New York City, we identify the treatment effect of inclusion on total attendance with a propensity score model:
 
 ``` r
-# propensity score matching
+# propensity score model
 m_ps<- glm(treatment ~ PercentBlack + PercentSWD + PercentPoverty + TotalEnrollment +
              ENI, family = binomial(), data = working_data)
 summary(m_ps)
 ```
 
-Using the population of third grade public school classrooms in New York City, I identify the treatment effect of inclusion on total attendance. Balance in the propensity score is diagnosed with the `cobalt` package
+Balance in the propensity score is diagnosed using the `cobalt` package
 
 ``` r
 #Checking balance before and after matching:
@@ -55,7 +56,7 @@ Using the population of third grade public school classrooms in New York City, I
 ## Matched (Unweighted)  262.       102
 ## Unmatched             361.        45
 ```
-Hard coding IPTW and SW
+IPTW and SW weights can be hand-coded, or assigned using the `PSweight` package:
 
 ``` r
 working_data$treatment_identifier <- ifelse(working_data$treatment == 1, "inclusion", "non-inclusion")
