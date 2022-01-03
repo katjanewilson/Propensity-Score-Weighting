@@ -56,7 +56,7 @@ Balance in the propensity score is diagnosed using the `cobalt` package
 ## Matched (Unweighted)  262.       102
 ## Unmatched             361.        45
 ```
-IPTW and SW weights can be hand-coded, or assigned using the `PSweight` package:
+IPTW and SW weights can be hard-coded, or assigned using the `PSweight` package:
 
 ``` r
 working_data$treatment_identifier <- ifelse(working_data$treatment == 1, "inclusion", "non-inclusion")
