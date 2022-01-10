@@ -13,7 +13,7 @@
 
 Matching, a class of observational study methods, links each treatment unit in a study to one or more control units. In a quasi-experimental setting or "natural experiment" (i.e. in the absence of randomization), matching helps to reduce the influence of covariate bias by creating an artificial control group that is comparable to the original treatment group.
 
-Two common issue face researchers when working with a matched sample: first, distributions of important covariates might still be imbalanced after matching, and second, matching discards large amounts of data in an effort to obtain similar groups. 
+Researchers face two common issues when working with a matched sample: first, distributions of key covariates might still be imbalanced after matching, and second, matching discards large amounts of data in an effort to obtain similar groups. 
 
 Weighting by the propensity score is one work around. Using weighting, researchers can obtain better balance on key covariates and retain all observations from the original sample. Such weighting schemes are intimately tied to the survey sampling literature, both in their technical foundations and general limitations.
 
