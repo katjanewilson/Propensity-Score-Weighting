@@ -204,7 +204,7 @@ grid.arrange(
 
 **Matched Regression**
 
-Compare the estimate to the simple regression, from above, the standard error is lower, and we are more confdient that we have controlled for the covaraites. However, the N has now reduced to 102 units, as the tradeoff. 
+Compared to the simple regression, from above, the matched estimated yields a lower standard error. Sample size has now reduced to 102 units; therefore our quantity of interest is the ATT, or the Average Treatment Effect Among the Treated. The quantity estimated refers to the percent attendance where the target population is the treated population. Compare this to the Average Treatment Effect (ATE), where the target population is the whole population, as in a randomized study, simulated by the regular regression estimate in the previous section. 
 
 ```{r message=FALSE, warning=FALSE, include=TRUE}
 #create the matched set, only 364 schools are matched
@@ -248,54 +248,37 @@ In the worked example that will follow, a population of schools in NYC is matche
 
 **Inverse Probability Treatment Weighting**
 
-Hand calculation of the IPTW and SW
-
-```{r message=FALSE, warning=FALSE, include=FALSE}
-data <- data.frame("covariate" = c("PercentBlack", "PercentSWD",
-                                      "PercentPoverty", "TotalEnrollment",
-                                      "ENI"),
-                   "SMD Unmatched" = c(0.470, 0.458,
-                                  1.041, 0.648, 0.906),
-                   "Propensity Score" = c( -0.170,-0.286,
-                                       -0.550, -0.051, -0.476),
-                   "Nearest Neighbor" = c(0.0057, 0.0148,
-                                          -0.0328, -0.066, -0.044))
-
-
-
-```
-
+Using a gam model to identify the propensity score, here, and then use the iptw and standardized weights in the estimate. Note that we now have the full sample size, which is an advantage over matching methods.
 
 ```{r message=FALSE, warning=FALSE, include=TRUE}
+library(gam)
+mod <- gam(as.factor(treatment) ~ s(PercentBlack) + s(PercentSWD) + (PercentPoverty) + s(TotalEnrollment) +
+                          (ENI), 
+           data = working_data, family = "binomial")
+par(mfrow=c(3,2))
+plot(mod, residuals = TRUE, se= TRUE, pch = ".")
+working_data <- working_data %>%
+   mutate(propensity_gam = predict(mod, type = "response"))
+## iptw weights
 working_data$treatment_identifier <- ifelse(working_data$treatment == 1, "inclusion", "non-inclusion")
-working_data$iptw <- ifelse(working_data$treatment_identifier == 'inclusion', 1/(working_data$propensity_score),
-                            1/(1-working_data$propensity_score))
+working_data$iptw <- ifelse(working_data$treatment_identifier == 'inclusion', 1/(working_data$propensity_gam),
+                            1/(1-working_data$propensity_gam))
 
 #stabilized weights
 working_data$stable.iptw <- ifelse(working_data$treatment_identifier == 'inclusion',
-                                   (mean(working_data$propensity_score))/working_data$propensity_score,
-                                   mean(1-working_data$propensity_score)/(1-working_data$propensity_score))
+                                   (mean(working_data$propensity_gam))/working_data$propensity_gam,
+                                   mean(1-working_data$propensity_gam)/(1-working_data$propensity_gam))
+working_data %>%
+  group_by(treatment) %>%
+  summarise(iptw = weighted.mean(AllStudents_PA, iptw),
+            stable_iptw = weighted.mean(AllStudents_PA, stable.iptw),
+            n=n())
 
-## Weighted Data, using the survey design package
-working_data_weighted <- svydesign(ids = ~1, data= working_data, weights= working_data$iptw)
-## balance of each in the unweighted sample
-data<- working_data_weighted$variables
-mod4 <- lm(AllStudents_PA ~ treatment, weights = data$iptw, data = data)
-
+mod4 <- lm(AllStudents_PA ~ treatment, weights = working_data$iptw, data = working_data)
+summary(mod4)
 ```
 
-```{r message=FALSE, warning=FALSE, include=FALSE}
-employ.data[4,2]<- nrow(data)
-employ.data[4,3]<- mod4$coefficients[[2]]
-employ.data[4,4]<- coef(summary(mod4))[, "Std. Error"][[2]]
 
-## stable
-mod5 <- lm(AllStudents_PA ~ treatment, weights = data$stable.iptw, data = data)
-employ.data[5,2]<- nrow(data)
-employ.data[5,3]<- mod5$coefficients[[2]]
-employ.data[5,4]<- coef(summary(mod5))[, "Std. Error"][[2]]
-
-```
 
 ## Additional Weighting Schemes
 
@@ -365,14 +348,6 @@ ate.any <- PSweight(ps.formula = ps.formula,
                     weight= "overlap")
 ```
 
-```{r message=FALSE, warning=FALSE, include=FALSE}
-ate.any
-### sig effect with the IPTW
-summary(ate.any)
-employ.data[7,2]<- nrow(data)
-employ.data[7,3]<- 0.72475
-employ.data[7,4]<- 0.173
-```
 
 ## Comparing Estimates
 
