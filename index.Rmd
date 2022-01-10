@@ -216,10 +216,9 @@ summary(mod3)
 
 ```
 
-## Review of Weighting
-The propensity scores, or the probabilities of treatment assignment, are not dependent on the treatment group, but rather are dependent on the relationship of the covariates to the treatment. The covariate information is precisely valuable for each score to reducing the bias in regular regression estimates.
+## Weighted Estimation
 
-Weighting helps by assigning a higher weight to subjects who are not likely to be in the treatment class, giving these units more information. Subjects who are not likely to be in the treatment are rare, and valuable. Units who are more likely to be in the treatment have repeated information and are down-weighted. In the same spirit of the manipulation that underlies much of causal inference, weighting helps creates a more balanced “pseudo-population” to proceed with a balanced analysis.
+Weighting by the propensity score will help to retain all of the subject in the analysis. By assigning a higher weight to subjects with a low propensity score, we give more weight to units who are not likely to be in the treatment class. Subjects who are not likely to be in the treatment are rare, and valuable. On theo ther hand, units who are more likely to be in the treatment have repeated information. These observations will be down-weighted. In the same spirit of the manipulation that underlies much of causal inference, weighting helps creates a more balanced “pseudo-population” to proceed with a balanced analysis.
 
 Weighting of the propensity score is directly parallel to the Horvitz Thompson estimator (@horvitz1952generalization) in survey literature. The Horvitz Thompson estimator performs inverse probability weighting (by giving each observation a weight which is the inverse of its probability of inclusion), and provides an unbiased estimator of the population total and population mean under unequal probability sampling. Using such survey weights, the estimate for the population mean becomes
 
@@ -241,14 +240,12 @@ $$
 
 A second type of propensity score matching, Standardized IP-weighting, deals with the issues in IPTW weighting where individuals with propensity scores close to 0 (those extremely unlikely to be treated) end up with a very large weight. Large weights result in unstable estimators. Standardized weights use the marginal probability of treatment instead of 1 in the weight numerator. This example is parallel to standardized weights in survey literature, where weighting techniques like standardized weighting are used to address issues with low response rates, caused by survey coverage and unit nonresponse. 
 
-In the worked example that will follow, a population of schools in NYC is matched on a set of five observable covariates. In this case, a very small number of schools (high poverty, high minority schools) are unlikely to be in the treatment condition. When these schools do recieve the treatment, weighting helps to give their information as much influence as possible. IPTW also addresses one of the main limitations of matching- reduction in sample size. With IPTW, all subjects remain in the analysis. The same is true of overlap weights.
+Referring back to our population of NYC public schools, the set of five measured covaraites will inform the weights. In this case, a very small number of schools (high poverty, high minority schools) are unlikely to be in the treatment condition. When these schools do receive the treatment, weighting gives their information as much influence as possible. Recall that IPTW addresses one of the main limitations of matching- reduction in sample size. Using IPTW, all subjects (schools) remain in the analysis. The same is true of overlap weights.
 
-
-## Weighting Estimation
 
 **Inverse Probability Treatment Weighting**
 
-Using a gam model to identify the propensity score, here, and then use the iptw and standardized weights in the estimate. Note that we now have the full sample size, which is an advantage over matching methods.
+Given the non-linear relationship of three covaraites wit hthe treatment assignment, I use a generalized additive model (@hastie2017generalized) to identify the propensity score. IPTW and SW weights are calculated and attached to each observation. Note that the full sample size (N=623,147) is retained.
 
 ```{r message=FALSE, warning=FALSE, include=TRUE}
 library(gam)
@@ -286,7 +283,7 @@ summary(mod4)
 
 One concern regarding propensity score weighting is that observations with extremely large weights might over-influence results and yield estimates with high variance. In that case, a common recommendation is to trim observations with large survey weights. Again, the suggestion of weight trimming comes directly from survey design methods, such as @potter1993effect, where weight trimming has been shown to reduce the sampling variance estimate. The tradeoffs suggested from the survey literature parallel the tradeoffs for weight trimming in PS methods: larger sample variance or substantial bias might result for some survey estimates, despite the overall decrease of variance.
 	
-Trimmed weighting generally takes two approaches. One approach, @crump2009dealing, employs a “min max” approach, excluding patients whose propensity score is outside of the range of this cutoff. Another approach is to exclude subjects who fall below a certain quantile of the propensity score distribution in either treatment of control group. For instance, Sturmer et al 2010 trim the propensity scores in treated patients at the lower end of the propensity score distribution and in untreated patients at the higher end of the propensity score distribution. In either approach, weight trimming improves the accuracy and precision of the final parameter estimates, as in @lee2011weight. 
+Trimmed weighting generally takes two approaches. One approach, @crump2009dealing, employs a “min max” approach, excluding subjects whose propensity score is outside of the range of this cutoff. Another approach is to exclude subjects who fall below a certain quantile of the propensity score distribution in either treatment of control group. For instance, Sturmer et al 2010 trim the propensity scores in treated patients at the lower end of the propensity score distribution and in untreated patients at the higher end of the propensity score distribution. In either approach, weight trimming improves the accuracy and precision of the final parameter estimates, as in @lee2011weight. 
 
 $$
 \hat{w}_{ij}, IPW-T = \hat{w}_{ij},IPW{\hat{w}_{ij},IPW<c}
@@ -296,6 +293,39 @@ $$
 Determining the optimal amount of trimming is unfortunately arbitrary, and bias is likely to result. Analysts are advised to investigate the procedures that led to the generation of the weights (proper specification of the PS). Better specification of the PS model, popularly done by machine learning methods, such as @hill2011bayesian, is an option. Also mentioned, in both trimming examples, the choice of threshold might be arbitrary. More importantly, trimming results in increased bias in estimates, as well as a reduced sample size.
 
 As a final conceptual challenge to trimming methods, trimming results in an ambiguous target population that is difficult for stakeholders to interpret. In the NYC Schools example below, would generalizing the effect of gifted/talented programs to “schools that fall within the 85th quantile of the propensity score” be interpretable to policy makers? Taking the steps to translate the generalizability of an effect based on a certain subset of the PS distribution quickly becomes quantitatively convenient, but conceptually daunting at the policy level. This problem is especially of note under situations of heterogeneous treatment effects. When the treatment effects are constant across the distribution of the covariates, then weight trimming might be ok, but when the treatment effects vary across the distribution of covariates (such as lower income schools that benefit more from GT programs), then weight trimming is less than ideal.
+
+The distribution of the weights, the points to the right are extremely unlikely to have inclusion. We might remove these by truncating the weights at a maximum of 10.
+
+```{r message=FALSE, warning=FALSE, include=TRUE, echo=FALSE}
+
+## distribution of weights
+p1<- ggplot(working_data, aes(x = iptw, fill = as.factor(treatment))) +
+   geom_density(alpha = 0.5, colour = "grey50") +
+   geom_rug() +
+   scale_x_log10(breaks = c(1, 5, 10, 20, 40)) +
+   theme(panel.background = element_rect(fill='white'))+
+   ggtitle("Distribution of inverse probability weights, all data")
+# truncate weights
+trimmed_data <- working_data %>%
+  filter(iptw<10)
+## distribution of truncated weights
+p2 <- ggplot(trimmed_data, aes(x = iptw, fill = as.factor(treatment))) +
+   geom_density(alpha = 0.5, colour = "grey50") +
+   geom_rug() +
+   scale_x_log10(breaks = c(1, 5, 10, 20, 40)) +
+  theme(panel.background = element_rect(fill='white'))+
+   ggtitle("Distribution of inverse probability weights, trimmed data")
+
+gl<- list(p1,p2)
+grid.arrange(
+  grobs = gl,
+  top=textGrob("Weight Comparison"))
+
+mod4 <- lm(AllStudents_PA ~ treatment, weights = trimmed_data$iptw, data = trimmed_data)
+summary(mod4)
+```
+
+
 
 **Overlap Weights**
 
@@ -311,9 +341,9 @@ $$
 \end{equation}
 $$
 
-An advantage of overlap weighting is that they lead to exact balance on the mean of every measured covariate when the PS is estimated by logistic regression. All weights are bounded between 0 and 1 by design, eliminating the need for weight trimming. The approach might be particularly useful in the era of big data, where inclusion criteria is defined more broadly. Large data sources, with many possible covariates, also provoke the desire to clarify best practices for handling extreme propensity scores. Additionally, the estimator that results from using the overlap weights have minimum asymptotic variance.
+An advantage of overlap weighting is that overlap weights lead to exact balance on the mean of every measured covariate when the PS is estimated by logistic regression. All weights are bounded between 0 and 1 by design, eliminating the need for weight trimming. The approach might be particularly useful in the era of big data, where inclusion criteria is defined more broadly. Large data sources, with many possible covariates, also provoke the desire to clarify best practices for handling extreme propensity scores.
 
-A limitation, as with all other PS methods, is that researchers are at the whim of which covariates are available and included in them odel. Additionally, the ATE is now in reference to the target population, which is the overlap population. The estimation of the treatment could be for a subpopulation that does not reflect people who receive the treatment in routine service. In the NYC schools example, we might be estimating people who have no chance of the treatment.
+A limitation, as with all other PS methods, is that researchers are at the whim of which covariates are available and included in the model. Additionally, the ATE is now in reference to the target population, which is the overlap population. The estimation of the treatment could be for a sub-population that does not reflect people who receive the treatment in routine service. In the NYC schools example, we might be estimating people who have no chance of the treatment.
 
 
 ```{r message=FALSE, warning=FALSE, include=FALSE}
@@ -346,20 +376,10 @@ plot(msstat, type="balance", metric = "PSD")
 ate.any <- PSweight(ps.formula = ps.formula,
                     yname = "Y", data = data1,
                     weight= "overlap")
+ate.any
+summary(ate.any)
 ```
 
-
-## Comparing Estimates
-
-```{r message=FALSE, warning=FALSE, include=TRUE}
-
-### print table
-library(kableExtra)
-employ.data %>%
-  kbl(caption = "Weighting Scheme Differences") %>%
-  kable_classic(full_width = F, html_font = "Times New Roman")
-
-```
 
 ## References
 
