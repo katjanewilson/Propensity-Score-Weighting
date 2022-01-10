@@ -11,7 +11,11 @@
 
 ### Overview
 
-Matching is a class of observational study methods that reduces the influence of covariate bias by matching each treatment unit to one or more control units. A common issue that researchers encounter when working with a matched sample is imbalance in the covariate distribution between the two groups. Weighting helps to retain a reliable average treatment effect estimate in the presence of covariate imbalance. Such weighting schemes are intimately tied to the survey sampling literature, both in their technical foundations and general limitations.
+Matching, a class of observational study methods, links each treatment unit in a study to one or more control units. In a quasi-experimental setting or "natural experiment" (i.e. in the absence of randomization), matching helps to reduce the influence of covariate bias by creating an artificial control group that is comparable to the original treatment group.
+
+Two common issue face researchers when working with a matched sample: first, distributions of important covariates might still be imbalanced after matching, and second, matching discards large amounts of data in an effort to obtain similar groups. 
+
+Weighting by the propensity score is one work around. Using weighting, researchers can obtain better balance on key covariates and retain all observations from the original sample. Such weighting schemes are intimately tied to the survey sampling literature, both in their technical foundations and general limitations.
 
 Using the population of third grade public school classrooms in New York City, we identify the treatment effect of inclusion on total attendance with a propensity score model:
 
