@@ -37,11 +37,11 @@ pre code {
 
 ## Introduction
 
-Matching is a class of observational study methods that reduces the influence of covariate bias by matching each treatment individual to one or more control unit. In the presence of many confounding variables, matching is facilitated by the propensity score, a balancing score that takes into account all measured covariates and assigns a probability of the unit being in the treatment or control group. From here, units can be matched in a variety of ways: nearest neighbor matching, full matching, and mahalanobis distance matching, are some. In each of these methods, the goal is “match” subjects on observable characteristics, making the treatment and control groups as similar as possible.
+Matching is a class of observational study methods that reduces the influence of covariate bias by matching each treatment individual to one or more control unit. In the presence of many confounding variables, matching is facilitated by the propensity score, a balancing score that takes into account all measured covariates and assigns a probability of the unit being in the treatment or control group. From here, units can be matched in a variety of ways: nearest neighbor matching, full matching, and mahalanobis distance matching are some. In each of these methods, the goal is to “match” subjects on observable characteristics, making the treatment and control groups as similar as possible.
 
-Matching on observable characteristics is crucial to achieving a balanced treatment and control sample. But trade offs of the matching method should be considered. For one, the study sample is now a fraction of the overall data in the population. Indeed, only units with a match are included in the analyses. Additionally, the Average Treatment Effect of the Treated (ATT) is, under these methods, only internally valid for the matched sample. Even more, the higher probability that some subjects have of being placed in the treatment group over other subjects being placed in the treatment group is inappropriately ignored.
+Matching on observable characteristics is crucial to achieving a balanced treatment and control sample, but trade offs of the matching method should be considered. For one, the study sample is now a fraction of the overall data in the population. Indeed, only units with a match are included in the analyses. Additionally, the Average Treatment Effect of the Treated (ATT) is, under these methods, only internally valid for the matched sample. Even more, the higher probability that some subjects have of being placed in the treatment group over other subjects being placed in the treatment group is inappropriately ignored. Such trade offs in matching might be addressed with a more nuanced treatment of the propensity score. 
 
-Such trade offs in matching might be addressed with a more nuanced treatment of the propensity score. Using data from NYC public schools, we can compare the capabilities of various weighting methods, noting the shared technical foundations and general limitations from weighting methods as used in the survey literature. 
+Using data from NYC public schools, we compare the capabilities of various weighting methods, noting the shared technical foundations and general limitations from weighting methods as used in the survey literature. 
 
 ```{r message=FALSE, warning=FALSE, include=FALSE}
 ### import data
@@ -76,8 +76,150 @@ head(working_data)
 
 In the sample analysis, the statistical quantity of interest is the causal effect of a treatment (inclusion models) on percent attendance (PA) and chronic absenteeism (CA) for third grade public school students in NYC. In the sample dataset above, each school is identified by a unique 6 digit DBN. The additional variables, such as Percent Minority students and Percent Students in Poverty, serve as pre-treatment covariates. In what follows, I will use the `MatchIt` package along with various weighting packages to compare how estimates of the ATE and the ATT vary based on weighting scheme.
 
-## Review of Weighting 
-Using propensity scores, weighting can be applied in the context of an observational study. Propensity scores are not dependent on the treatment group, but rather are dependent on the relationship of the covariates to the treatment. Using weighting, analysts might assign a higher weight to subjects who are not likely to be in the treatment class, giving these units more information. Subjects who are not likely to be in the treatment are rare, and valuable. Units who are more likely to be in the treatment have repeated information and are down-weighted. In the same spirit of the manipulation that underlies much of causal inference, weighting helps creates a more balanced “pseudo-population” to proceed with a balanced analysis.
+## Regression Estimation
+
+623 schools with non-inclusion models had an averdage attendance of 92.92% and a mean chronic absenteeism rate of 24.91%, compared with the 147 inclusion schools with a mean attendance of 94.55% and chronic absenteeism rate of 14.46%. 
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+working_data %>%
+  group_by(treatment) %>%
+  summarise(mean_attendance = mean(AllStudents_PA),
+            mean_chronic_absent = mean(AllStudents_CA),
+            n=n())
+```
+
+This simple comparison is not fair, however, since the treatment (inclusion) is not randomized. Low-income, high-minority schools are more likely to have self-contained classrooms than high-income, low-minority schools. Additionally, schools with more students with special needs are more likely to have a self-contained option. These differences could be driving the attendance difference, rather than the effect of inclusion itself. 
+```{r message=FALSE, warning=FALSE, include=TRUE}
+working_data %>%
+  group_by(treatment) %>%
+  summarise(mean_PercentBlack = mean(PercentBlack),
+            mean_PercentSWD = mean(PercentSWD),
+            mean_PercentPoverty = mean(PercentPoverty),
+            mean_TotalEnrollment = mean(TotalEnrollment),
+            mean_ENI = mean(ENI))
+```
+
+**Simple Regression**
+
+A simple unmatched regression shows the treatment effect of inclusion as a 1.63% increase in attendance rates for all students. 
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+### ummatched effect
+mod1<- lm(AllStudents_PA ~ treatment, data = working_data)
+summary(mod1)
+
+
+```
+
+
+
+
+**Propensity Score Matching**
+
+To isolate the effect of inclusion, we create an artificial control group that resembles the treatment group in terms of the five key covariates. One way to create this group is by hand calculating the propensity score through a logistic regression model that predicts the treatment by five covariates, resulting in a propensity score for each subject (each school). The propensity score represents the probability that the school is in the treatment group.
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+m_ps<- glm(treatment ~ PercentBlack + PercentSWD + PercentPoverty + TotalEnrollment +
+             ENI, family = binomial(), data = working_data)
+summary(m_ps)
+# the PS is the predicted probability
+prs_df <- data.frame(pr_score = predict(m_ps, type = "response"),
+                     treatment = m_ps$model$treatment)
+head(prs_df)
+
+```
+
+The `matchit` package facilitates the creation of this propensity score, and subsequent matching of groups. Our control group (original N >600) shrinks to the size of the treatment (N=147), so only observations with similar features remain. 
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+## region of common support
+working_data <- cbind(working_data, prs_df$pr_score)
+names(working_data)[names(working_data) == "prs_df$pr_score"]<- "propensity_score"
+```
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+## propensity score model
+prop_matched <- matchit(treatment ~ PercentBlack + PercentSWD + PercentPoverty + TotalEnrollment +
+                          ENI, family = binomial(), data = working_data)
+prop_matched2 <- match.data(prop_matched)
+
+# simple comparison
+prop_matched2 %>%
+  group_by(treatment) %>%
+  summarise(mean_attendance = mean(AllStudents_PA),
+            mean_chronic_absent = mean(AllStudents_CA),
+            n=n())
+```
+Balance in the propensity score can be further assessed through the `cobalt` package. Simple propensity score matching reduces the difference in the distributions of all covariates from baseline, but tweaking the ratio and caliper of the matching method will improve this balance. 
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+library(cobalt)
+bal.tab(prop_matched, m.threshold = 0.1)
+
+```
+
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+p1<- bal.plot(prop_matched, var.name = 'TotalEnrollment', which = "both")
+p2<- bal.plot(prop_matched, var.name = 'PercentPoverty', which = "both")
+p3<- bal.plot(prop_matched, var.name = 'PercentSWD', which = "both")
+p4<- bal.plot(prop_matched, var.name = 'PercentBlack', which = "both")
+p5<- bal.plot(prop_matched, var.name = 'ENI', which = "both")
+gl<- list(p1,p2, p3,p4, p5)
+grid.arrange(
+  grobs = gl,
+  top=textGrob("Propensity Score Matched"))
+```
+
+**Nearest Neighbor Matching**
+
+By increasing the ratio of matches to 4 control units: 1 treatment unit, and specifying the calpier (maximum width of the match) to 0.25, we improve the difference in groups for all covaraites. All five covariates now cross the 0.1 standardized mean difference threshold.
+
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+school_nearest <- matchit(formula = treatment ~ PercentBlack + PercentSWD + PercentPoverty + TotalEnrollment +
+                          ENI, 
+                          data = working_data,
+                          method = "nearest",
+                          family = "binomial",
+                          caliper = 0.25,
+                          ratio = 4)
+library(cobalt)
+bal.tab(school_nearest, m.threshold = 0.1)
+```
+
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+p1<- bal.plot(school_nearest, var.name = 'TotalEnrollment', which = "both")
+p2<- bal.plot(school_nearest, var.name = 'PercentPoverty', which = "both")
+p3<- bal.plot(school_nearest, var.name = 'PercentSWD', which = "both")
+p4<- bal.plot(school_nearest, var.name = 'PercentBlack', which = "both")
+p5<- bal.plot(school_nearest, var.name = 'ENI', which = "both")
+gl<- list(p1,p2, p3,p4, p5)
+grid.arrange(
+  grobs = gl,
+  top=textGrob("Nearest Neighbor with Caliper Matched"))
+```
+
+
+**Matched Regression**
+
+Compare the estimate to the simple regression, from above, the standard error is lower, and we are more confdient that we have controlled for the covaraites. However, the N has now reduced to 102 units, as the tradeoff. 
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+#create the matched set, only 364 schools are matched
+nearest_matched <- match.data(school_nearest)
+## estimating treatment effects
+mod3 <- lm(AllStudents_PA ~ treatment, data = nearest_matched)
+summary(mod3)
+
+
+```
+
+## Review of Weighting
+The propensity scores, or the probabilities of treatment assignment, are not dependent on the treatment group, but rather are dependent on the relationship of the covariates to the treatment. The covariate information is precisely valuable for each score to reducing the bias in regular regression estimates.
+
+Weighting helps by assigning a higher weight to subjects who are not likely to be in the treatment class, giving these units more information. Subjects who are not likely to be in the treatment are rare, and valuable. Units who are more likely to be in the treatment have repeated information and are down-weighted. In the same spirit of the manipulation that underlies much of causal inference, weighting helps creates a more balanced “pseudo-population” to proceed with a balanced analysis.
 
 Weighting of the propensity score is directly parallel to the Horvitz Thompson estimator (@horvitz1952generalization) in survey literature. The Horvitz Thompson estimator performs inverse probability weighting (by giving each observation a weight which is the inverse of its probability of inclusion), and provides an unbiased estimator of the population total and population mean under unequal probability sampling. Using such survey weights, the estimate for the population mean becomes
 
@@ -101,141 +243,6 @@ A second type of propensity score matching, Standardized IP-weighting, deals wit
 
 In the worked example that will follow, a population of schools in NYC is matched on a set of five observable covariates. In this case, a very small number of schools (high poverty, high minority schools) are unlikely to be in the treatment condition. When these schools do recieve the treatment, weighting helps to give their information as much influence as possible. IPTW also addresses one of the main limitations of matching- reduction in sample size. With IPTW, all subjects remain in the analysis. The same is true of overlap weights.
 
-## Matched Estimation
-
-**Regression Estimates**
-
-```{r message=FALSE, warning=FALSE, include=TRUE}
-working_data %>%
-  group_by(treatment) %>%
-  summarise(mean_attendance = mean(AllStudents_PA),
-            mean_chronic_absent = mean(AllStudents_CA))
-working_data %>%
-  group_by(treatment) %>%
-  summarise(mean_PercentBlack = mean(PercentBlack),
-            mean_PercentSWD = mean(PercentSWD),
-            mean_PercentPoverty = mean(PercentPoverty),
-            mean_TotalEnrollment = mean(TotalEnrollment),
-            mean_ENI = mean(ENI))
-
-### ummatched effect
-mod1<- lm(AllStudents_PA ~ treatment, data = working_data)
-summary(mod1)
-
-```
-
-```{r message=FALSE, warning=FALSE, include=FALSE}
-employ.data[1,3]<- mod1$coefficients[[2]]
-employ.data[1,4]<- coef(summary(mod1))[, "Std. Error"][[2]]
-```
-
-
-**Propensity Score Matching**
-
-Logistic regression predicts treatment by five covariates, resulting in a propensity score for each subject (each school). Matching on propensity score does little to improve covariate balance. Nearest neighbor will improve balance.
-
-```{r message=FALSE, warning=FALSE, include=TRUE}
-m_ps<- glm(treatment ~ PercentBlack + PercentSWD + PercentPoverty + TotalEnrollment +
-             ENI, family = binomial(), data = working_data)
-summary(m_ps)
-# the PS is the predicted probability
-prs_df <- data.frame(pr_score = predict(m_ps, type = "response"),
-                     treatment = m_ps$model$treatment)
-head(prs_df)
-
-```
-
-```{r message=FALSE, warning=FALSE, include=TRUE}
-## region of common support
-working_data <- cbind(working_data, prs_df$pr_score)
-names(working_data)[names(working_data) == "prs_df$pr_score"]<- "propensity_score"
-## propensity score model
-prop_matched <- matchit(treatment ~ PercentBlack + PercentSWD + PercentPoverty + TotalEnrollment +
-                          ENI, family = binomial(), data = working_data)
-prop_matched2 <- match.data(prop_matched)
-library(cobalt)
-bal.tab(prop_matched, m.threshold = 0.1)
-
-
-
-```
-
-```{r message=FALSE, warning=FALSE, include=FALSE}
-mod2<- lm(AllStudents_PA ~ treatment, data = prop_matched2)
-employ.data[2,2]<- nrow(prop_matched2)
-employ.data[2,3]<- mod2$coefficients[[2]]
-employ.data[2,4]<- coef(summary(mod2))[, "Std. Error"][[2]]
-
-
-```
-
-**Nearest Neighbor Matching**
-
-Nearest neighbor matching matches each unit with its nearest propensity score neighbor in a 4:1 ratio of control to treatment units. Nearest neighbor matching improves balance for all five covariates, and crosses the 0.1 standardized mean difference threshol for all covariates.
-
-
-```{r message=FALSE, warning=FALSE, include=TRUE}
-school_nearest <- matchit(formula = treatment ~ ENI +PercentBlack + PercentSWD +TotalEnrollment +
-                            PercentPoverty, 
-                          data = working_data,
-                          method = "nearest",
-                          family = "binomial",
-                          caliper = 0.25,
-                          ratio = 4)
-library(cobalt)
-bal.tab(school_nearest, m.threshold = 0.1)
-p1<- bal.plot(school_nearest, var.name = 'TotalEnrollment', which = "both")
-p2<- bal.plot(school_nearest, var.name = 'PercentPoverty', which = "both")
-p3<- bal.plot(school_nearest, var.name = 'PercentSWD', which = "both")
-p4<- bal.plot(school_nearest, var.name = 'PercentBlack', which = "both")
-p5<- bal.plot(school_nearest, var.name = 'ENI', which = "both")
-gl<- list(p1,p2, p3,p4, p5)
-grid.arrange(
-  grobs = gl,
-  top=textGrob("Nearest Neighbor Matched"))
-
-```{r message=FALSE, warning=FALSE, include=FALSE}
-#create the matched set, only 364 schools are matched
-nearest_matched <- match.data(school_nearest)
-
-# ### examine the covariate balance in the matched sample, shows that the matching is good
-# fn_bal <- function(nearest_matched, variable) {
-#   nearest_matched$variable <- nearest_matched[, variable]
-#   nearest_matched$treatment <- as.factor(nearest_matched$treatment)
-#   support <- c(min(nearest_matched$variable), max(nearest_matched$variable))
-#   ggplot(nearest_matched, aes(x = distance, y = variable, color = treatment)) +
-#     geom_point(alpha = 0.2, size = 1.3) +
-#     geom_smooth(method = "loess", se = F) +
-#     xlab("Propensity score") +
-#     ylab(variable) +
-#     theme_bw() +
-#     ylim(support)
-# }
-# grid.arrange(
-#   fn_bal(nearest_matched, "PercentPoverty"),
-#   fn_bal(nearest_matched, "PercentSWD") + theme(legend.position = "none"),
-#   fn_bal(nearest_matched, "PercentBlack"),
-#   fn_bal(nearest_matched, "ENI") + theme(legend.position = "none"),
-#   fn_bal(nearest_matched, "TotalEnrollment"),
-#   nrow = 3, widths = c(1, 0.8)
-# )
-
-## estimating treatment effects
-mod3 <- lm(AllStudents_PA ~ treatment, data = nearest_matched)
-summary(mod3)
-employ.data[3,2]<- nrow(nearest_matched)
-employ.data[3,3]<- mod3$coefficients[[2]]
-employ.data[3,4]<- coef(summary(mod3))[, "Std. Error"][[2]]
-t<- bal.tab(school_nearest, m.threshold = 0.1)[[1]]
-p<- bal.tab(prop_matched, m.threshold = 0.1)[[1]]
-cov <- c("PercentBlack" , "PercentSWD", "PercentPoverty", "TotalEnrollment",  "ENI")
-### the SMD is still high
-ecls_table <- CreateTableOne(vars=cov,strata="treatment",data=working_data,test=F,
-                             smd=T)
-print(ecls_table, smd=T)
-
-
-``` 
 
 ## Weighting Estimation
 
