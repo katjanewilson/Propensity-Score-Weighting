@@ -189,7 +189,7 @@ bal.tab(school_nearest, m.threshold = 0.1)
 ```
 
 
-```{r message=FALSE, warning=FALSE, include=TRUE}
+```{r echo=FALSE, message=FALSE, warning=FALSE}
 p1<- bal.plot(school_nearest, var.name = 'TotalEnrollment', which = "both")
 p2<- bal.plot(school_nearest, var.name = 'PercentPoverty', which = "both")
 p3<- bal.plot(school_nearest, var.name = 'PercentSWD', which = "both")
@@ -296,7 +296,7 @@ As a final conceptual challenge to trimming methods, trimming results in an ambi
 
 The distribution of the weights, the points to the right are extremely unlikely to have inclusion. We might remove these by truncating the weights at a maximum of 10.
 
-```{r message=FALSE, warning=FALSE, include=TRUE, echo=FALSE}
+```{r echo=FALSE, message=FALSE, warning=FALSE}
 
 ## distribution of weights
 p1<- ggplot(working_data, aes(x = iptw, fill = as.factor(treatment))) +
@@ -315,7 +315,9 @@ p2 <- ggplot(trimmed_data, aes(x = iptw, fill = as.factor(treatment))) +
    scale_x_log10(breaks = c(1, 5, 10, 20, 40)) +
   theme(panel.background = element_rect(fill='white'))+
    ggtitle("Distribution of inverse probability weights, trimmed data")
+```
 
+```{r message=FALSE, warning=FALSE, include=TRUE, echo=FALSE}
 gl<- list(p1,p2)
 grid.arrange(
   grobs = gl,
@@ -370,8 +372,6 @@ ps.formula<- trt~PercentBlack + PercentSWD + PercentPoverty+TotalEnrollment+
 msstat <- SumStat(ps.formula, trtgrp="1", data=data1,
                   weight=c("IPW","overlap","treated","entropy","matching"))
 plot(msstat, type="balance", metric = "PSD")
-
-
 ### PSweight to identify ATE for Overlap
 ate.any <- PSweight(ps.formula = ps.formula,
                     yname = "Y", data = data1,

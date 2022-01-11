@@ -286,7 +286,7 @@ As a final conceptual challenge to trimming methods, trimming results in an ambi
 
 The distribution of the weights, the points to the right are extremely unlikely to have inclusion. We might remove these by truncating the weights at a maximum of 10.
 
-```{r fig.show = "hold", fig.width = 3.25}
+```{r, fig.show = "hold", fig.width = 3.25}
 
 ## distribution of weights
 ggplot(working_data, aes(x = iptw, fill = as.factor(treatment))) +
@@ -312,7 +312,9 @@ ggplot(trimmed_data, aes(x = iptw, fill = as.factor(treatment))) +
 # grid.arrange(
 #   grobs = gl,
 #   top=textGrob("Weight Comparison"))
+```
 
+```{r fig.show = "hold", fig.width = 3.25}
 mod4 <- lm(AllStudents_PA ~ treatment, weights = trimmed_data$iptw, data = trimmed_data)
 summary(mod4)
 ```
@@ -323,8 +325,6 @@ A limitation, as with all other PS methods, is that researchers are at the whim 
 
 
 ```{r message=FALSE, warning=FALSE, include=FALSE}
-
-
 ### the PSweight package
 working_data <- read_csv("data/working_data.csv")
 out.formula <- Y~PercentBlack + PercentSWD + PercentPoverty+TotalEnrollment+
@@ -346,8 +346,6 @@ ps.formula<- trt~PercentBlack + PercentSWD + PercentPoverty+TotalEnrollment+
 msstat <- SumStat(ps.formula, trtgrp="1", data=data1,
                   weight=c("IPW","overlap","treated","entropy","matching"))
 plot(msstat, type="balance", metric = "PSD")
-
-
 ### PSweight to identify ATE for Overlap
 ate.any <- PSweight(ps.formula = ps.formula,
                     yname = "Y", data = data1,
