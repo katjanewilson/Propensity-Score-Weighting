@@ -1,12 +1,14 @@
 ---
-title: "Vignette Title"
-author: "Vignette Author"
+title: "Propensity Score Weighting for Covariate Adjustment"
+author: "Katherine Wilson"
 date: "`r Sys.Date()`"
 output: rmarkdown::html_vignette
 vignette: >
   %\VignetteIndexEntry{Vignette Title}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
+bibliography: references.bib
+link-citations: yes
 ---
 
 ```{r setup, include = FALSE}
@@ -16,50 +18,349 @@ knitr::opts_chunk$set(
 )
 ```
 
-Vignettes are long form documentation commonly included in packages. Because they are part of the distribution of the package, they need to be as compact as possible. The `html_vignette` output type provides a custom style sheet (and tweaks some options) to ensure that the resulting html is as small as possible. The `html_vignette` format:
+## Introduction
 
-- Never uses retina figures
-- Has a smaller default figure size
-- Uses a custom CSS stylesheet instead of the default Twitter Bootstrap style
+Matching is a class of observational study methods that reduces the influence of covariate bias by matching each treatment individual to one or more control unit. In the presence of many confounding variables, matching is facilitated by the propensity score, a balancing score that takes into account all measured covariates and assigns a probability of the unit being in the treatment or control group. From here, units can be matched in a variety of ways: nearest neighbor matching, full matching, and mahalanobis distance matching are some. In each of these methods, the goal is to “match” subjects on observable characteristics, making the treatment and control groups as similar as possible.
 
-## Vignette Info
+Matching on observable characteristics is crucial to achieving a balanced treatment and control sample, but trade offs of the matching method should be considered. For one, the study sample is now a fraction of the overall data in the population. Indeed, only units with a match are included in the analyses. Additionally, the Average Treatment Effect of the Treated (ATT) is, under these methods, only internally valid for the matched sample. Even more, the higher probability that some subjects have of being placed in the treatment group over other subjects being placed in the treatment group is inappropriately ignored. Such trade offs in matching might be addressed with a more nuanced treatment of the propensity score. 
 
-Note the various macros within the `vignette` section of the metadata block above. These are required in order to instruct R how to build the vignette. Note that you should change the `title` field and the `\VignetteIndexEntry` to match the title of your vignette.
+Using data from NYC public schools, we compare the capabilities of various weighting methods, noting the shared technical foundations and general limitations from weighting methods as used in the survey literature. 
 
-## Styles
+```{r message=FALSE, warning=FALSE, include=FALSE}
+### import data
 
-The `html_vignette` template includes a basic CSS theme. To override this theme you can specify your own CSS in the document metadata as follows:
+#libraries
+library(MatchIt)
+library(readr)
+library(tidyverse)
+library(gridExtra)
+library(survey)
+library(PSweight)
+library(tableone)
 
-    output: 
-      rmarkdown::html_vignette:
-        css: mystyles.css
+## blank data
+type <- c('regression', 'propensity score',
+          'nearest neighbor', 'iptw', 
+          'sw', 'trimmed', 'overlap')
+N <- c('770', '770',
+          '300',  '300',
+          'nn_standardized', 'trimmed', 'overlap')
+estimate <- c(NA, NA, NA, NA, NA, NA, NA)
+se <- c(NA, NA, NA,  NA, NA, NA, NA)
+employ.data <- data.frame(type,N, estimate, se)
 
-## Figures
-
-The figure sizes have been customised so that you can easily put two images side-by-side. 
-
-```{r, fig.show='hold'}
-plot(1:10)
-plot(10:1)
+############# Part 1: unmatched
+working_data <- read_csv("data/working_data.csv")
 ```
 
-You can enable figure captions by `fig_caption: yes` in YAML:
-
-    output:
-      rmarkdown::html_vignette:
-        fig_caption: yes
-
-Then you can use the chunk option `fig.cap = "Your figure caption."` in **knitr**.
-
-## More Examples
-
-You can write math expressions, e.g. $Y = X\beta + \epsilon$, footnotes^[A footnote here.], and tables, e.g. using `knitr::kable()`.
-
-```{r, echo=FALSE, results='asis'}
-knitr::kable(head(mtcars, 10))
+```{r message=FALSE, warning=FALSE, include=TRUE}
+head(working_data)
 ```
 
-Also a quote using `>`:
+In the sample analysis, the statistical quantity of interest is the causal effect of a treatment (inclusion models) on percent attendance (PA) and chronic absenteeism (CA) for third grade public school students in NYC. In the sample dataset above, each school is identified by a unique 6 digit DBN. The additional variables, such as Percent Minority students and Percent Students in Poverty, serve as pre-treatment covariates. In what follows, I will use the `MatchIt` package along with various weighting packages to compare how estimates of the ATE and the ATT vary based on weighting scheme.
 
-> "He who gives up [code] safety for [code] speed deserves neither."
-([via](https://twitter.com/hadleywickham/status/504368538874703872))
+## Regression Estimation
+
+623 schools with non-inclusion models had an averdage attendance of 92.92% and a mean chronic absenteeism rate of 24.91%, compared with the 147 inclusion schools with a mean attendance of 94.55% and chronic absenteeism rate of 14.46%. 
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+working_data %>%
+  group_by(treatment) %>%
+  summarise(mean_attendance = mean(AllStudents_PA),
+            mean_chronic_absent = mean(AllStudents_CA),
+            n=n())
+```
+
+This simple comparison is not fair, however, since the treatment (inclusion) is not randomized. Low-income, high-minority schools are more likely to have self-contained classrooms than high-income, low-minority schools. Additionally, schools with more students with special needs are more likely to have a self-contained option. These differences could be driving the attendance difference, rather than the effect of inclusion itself. 
+```{r message=FALSE, warning=FALSE, include=TRUE}
+working_data %>%
+  group_by(treatment) %>%
+  summarise(mean_PercentBlack = mean(PercentBlack),
+            mean_PercentSWD = mean(PercentSWD),
+            mean_PercentPoverty = mean(PercentPoverty),
+            mean_TotalEnrollment = mean(TotalEnrollment),
+            mean_ENI = mean(ENI))
+```
+
+**Simple Regression**
+
+A simple unmatched regression shows the treatment effect of inclusion as a 1.63% increase in attendance rates for all students. 
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+### ummatched effect
+mod1<- lm(AllStudents_PA ~ treatment, data = working_data)
+summary(mod1)
+
+
+```
+
+
+
+**Propensity Score Matching**
+
+To isolate the effect of inclusion, we create an artificial control group that resembles the treatment group in terms of the five key covariates. One way to create this group is by hand calculating the propensity score through a logistic regression model that predicts the treatment by five covariates, resulting in a propensity score for each subject (each school). The propensity score represents the probability that the school is in the treatment group.
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+m_ps<- glm(treatment ~ PercentBlack + PercentSWD + PercentPoverty + TotalEnrollment +
+             ENI, family = binomial(), data = working_data)
+summary(m_ps)
+# the PS is the predicted probability
+prs_df <- data.frame(pr_score = predict(m_ps, type = "response"),
+                     treatment = m_ps$model$treatment)
+head(prs_df)
+
+```
+
+
+The `matchit` package facilitates the creation of this propensity score, and subsequent matching of groups. Our control group (original N >600) shrinks to the size of the treatment (N=147), so only observations with similar features remain. 
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+## region of common support
+working_data <- cbind(working_data, prs_df$pr_score)
+names(working_data)[names(working_data) == "prs_df$pr_score"]<- "propensity_score"
+```
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+## propensity score model
+prop_matched <- matchit(treatment ~ PercentBlack + PercentSWD + PercentPoverty + TotalEnrollment +
+                          ENI, family = binomial(), data = working_data)
+prop_matched2 <- match.data(prop_matched)
+
+# simple comparison
+prop_matched2 %>%
+  group_by(treatment) %>%
+  summarise(mean_attendance = mean(AllStudents_PA),
+            mean_chronic_absent = mean(AllStudents_CA),
+            n=n())
+```
+
+Balance in the propensity score can be further assessed through the `cobalt` package. Simple propensity score matching reduces the difference in the distributions of all covariates from baseline, but tweaking the ratio and caliper of the matching method will improve this balance. 
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+library(cobalt)
+bal.tab(prop_matched, m.threshold = 0.1)
+
+```
+
+
+```{r, fig.show = "hold", fig.width = 3.25}
+bal.plot(prop_matched, var.name = 'TotalEnrollment', which = "both")
+bal.plot(prop_matched, var.name = 'PercentPoverty', which = "both")
+# p3<- bal.plot(prop_matched, var.name = 'PercentSWD', which = "both")
+# p4<- bal.plot(prop_matched, var.name = 'PercentBlack', which = "both")
+# p5<- bal.plot(prop_matched, var.name = 'ENI', which = "both")
+# gl<- list(p1,p2, p3,p4, p5)
+# grid.arrange(
+#   grobs = gl,
+#   top=textGrob("Propensity Score Matched"))
+```
+**Nearest Neighbor Matching**
+
+By increasing the ratio of matches to 4 control units: 1 treatment unit, and specifying the calpier (maximum width of the match) to 0.25, we improve the difference in groups for all covaraites. All five covariates now cross the 0.1 standardized mean difference threshold.
+
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+school_nearest <- matchit(formula = treatment ~ PercentBlack + PercentSWD + PercentPoverty + TotalEnrollment +
+                          ENI, 
+                          data = working_data,
+                          method = "nearest",
+                          family = "binomial",
+                          caliper = 0.25,
+                          ratio = 4)
+library(cobalt)
+bal.tab(school_nearest, m.threshold = 0.1)
+```
+
+
+```{r, fig.show = "hold", fig.width = 3.25}
+bal.plot(school_nearest, var.name = 'TotalEnrollment', which = "both")
+bal.plot(school_nearest, var.name = 'PercentPoverty', which = "both")
+# p3<- bal.plot(school_nearest, var.name = 'PercentSWD', which = "both")
+# p4<- bal.plot(school_nearest, var.name = 'PercentBlack', which = "both")
+# p5<- bal.plot(school_nearest, var.name = 'ENI', which = "both")
+# gl<- list(p1,p2)
+# grid.arrange(
+#    grobs = gl,
+#    top=textGrob("Nearest Neighbor with Caliper Matched"))
+```
+
+
+
+**Matched Regression**
+
+Compared to the simple regression, from above, the matched estimated yields a lower standard error. Sample size has now reduced to 102 units; therefore our quantity of interest is the ATT, or the Average Treatment Effect Among the Treated. The quantity estimated refers to the percent attendance where the target population is the treated population. Compare this to the Average Treatment Effect (ATE), where the target population is the whole population, as in a randomized study, simulated by the regular regression estimate in the previous section. 
+
+```{r message=FALSE, warning=FALSE, include=TRUE}
+#create the matched set, only 364 schools are matched
+nearest_matched <- match.data(school_nearest)
+## estimating treatment effects
+mod3 <- lm(AllStudents_PA ~ treatment, data = nearest_matched)
+summary(mod3)
+
+
+```
+
+
+## Weighted Estimation
+
+Weighting by the propensity score will help to retain all of the subject in the analysis. By assigning a higher weight to subjects with a low propensity score, we give more weight to units who are not likely to be in the treatment class. Subjects who are not likely to be in the treatment are rare, and valuable. On the other hand, units who are more likely to be in the treatment have repeated information. These observations will be down-weighted. In the same spirit of the manipulation that underlies much of causal inference, weighting helps creates a more balanced “pseudo-population” to proceed with a balanced analysis.
+
+Weighting of the propensity score is directly parallel to the Horvitz Thompson estimator (@horvitz1952generalization) in survey literature. The Horvitz Thompson estimator performs inverse probability weighting (by giving each observation a weight which is the inverse of its probability of inclusion), and provides an unbiased estimator of the population total and population mean under unequal probability sampling. Using such survey weights, the estimate for the population mean becomes
+
+
+
+$$\hat{y}HT = \frac{1}{N}\sum\limits_{i=1}^{n} w_i y_i $$
+
+
+Similarly, Inverse Probability Treatment Weighting (@rosenbaum1987model), will assign a higher weight to those units which are less likely to be included, just as units underrepresented in the sample compared to the population, are assigned a higher weight in the Horvitz-Thompson approach. The formula for the IPTW weights, where each subject is weighted by the inverse of their treatment probability, is given by
+$$
+p(x)=P(Z=1 \mid X) \\
+\begin{equation}
+  \hat{w}(IPTW) =
+    \begin{cases}
+      \frac{1}{\pi}\    \ for\ \ T_ij =1\\
+      \frac{1}{1-\pi} \  \ for \ \ T_ij = 0\\
+    \end{cases}       
+\end{equation}
+$$
+
+
+
+
+A second type of propensity score matching, Standardized IP-weighting, deals with the issues in IPTW weighting where individuals with propensity scores close to 0 (those extremely unlikely to be treated) end up with a very large weight. Large weights result in unstable estimators. Standardized weights use the marginal probability of treatment instead of 1 in the weight numerator. This example is parallel to standardized weights in survey literature, where weighting techniques like standardized weighting are used to address issues with low response rates, caused by survey coverage and unit nonresponse. 
+
+Referring back to our population of NYC public schools, the set of five measured covaraites will inform the weights. In this case, a very small number of schools (high poverty, high minority schools) are unlikely to be in the treatment condition. When these schools do receive the treatment, weighting gives their information as much influence as possible. Recall that IPTW addresses one of the main limitations of matching- reduction in sample size. Using IPTW, all subjects (schools) remain in the analysis. The same is true of overlap weights.
+
+
+**Inverse Probability Treatment Weighting**
+
+Given the non-linear relationship of three covaraites with treatment assignment, I use a generalized additive model (@hastie2017generalized) to identify the propensity score. IPTW and SW weights are calculated and attached to each observation. Note that the full sample size (N=623,147) is retained.
+
+```{r message=FALSE, warning=FALSE, include=TRUE, fig.width= 6, fig.height= 6}
+library(gam)
+mod <- gam(as.factor(treatment) ~ s(PercentBlack) + s(PercentSWD) + (PercentPoverty) + s(TotalEnrollment) +
+                          (ENI), 
+           data = working_data, family = "binomial")
+par(mfrow=c(3,2))
+plot(mod, residuals = TRUE, se= TRUE, pch = ".")
+
+working_data <- working_data %>%
+   mutate(propensity_gam = predict(mod, type = "response"))
+## iptw weights
+working_data$treatment_identifier <- ifelse(working_data$treatment == 1, "inclusion", "non-inclusion")
+working_data$iptw <- ifelse(working_data$treatment_identifier == 'inclusion', 1/(working_data$propensity_gam),
+                            1/(1-working_data$propensity_gam))
+
+#stabilized weights
+working_data$stable.iptw <- ifelse(working_data$treatment_identifier == 'inclusion',
+                                   (mean(working_data$propensity_gam))/working_data$propensity_gam,
+                                   mean(1-working_data$propensity_gam)/(1-working_data$propensity_gam))
+working_data %>%
+  group_by(treatment) %>%
+  summarise(iptw = weighted.mean(AllStudents_PA, iptw),
+            stable_iptw = weighted.mean(AllStudents_PA, stable.iptw),
+            n=n())
+
+mod4 <- lm(AllStudents_PA ~ treatment, weights = working_data$iptw, data = working_data)
+summary(mod4)
+```
+
+
+
+## Additional Weighting Schemes
+
+**Weight Trimming**
+
+One concern regarding propensity score weighting is that observations with extremely large weights might over-influence results and yield estimates with high variance. In that case, a common recommendation is to trim observations with large survey weights. Again, the suggestion of weight trimming comes directly from survey design methods, such as @potter1993effect, where weight trimming has been shown to reduce the sampling variance estimate. The tradeoffs suggested from the survey literature parallel the tradeoffs for weight trimming in PS methods: larger sample variance or substantial bias might result for some survey estimates, despite the overall decrease of variance.
+	
+Trimmed weighting generally takes two approaches. One approach, @crump2009dealing, employs a “min max” approach, excluding subjects whose propensity score is outside of the range of this cutoff. Another approach is to exclude subjects who fall below a certain quantile of the propensity score distribution in either treatment of control group. For instance, Sturmer et al 2010 trim the propensity scores in treated patients at the lower end of the propensity score distribution and in untreated patients at the higher end of the propensity score distribution. In either approach, weight trimming improves the accuracy and precision of the final parameter estimates, as in @lee2011weight. 
+
+$$
+\hat{w}_{ij}, IPW-T = \hat{w}_{ij},IPW{\hat{w}_{ij},IPW<c}
+$$
+
+
+Determining the optimal amount of trimming is unfortunately arbitrary, and bias is likely to result. Analysts are advised to investigate the procedures that led to the generation of the weights (proper specification of the PS). Better specification of the PS model, popularly done by machine learning methods, such as @hill2011bayesian, is an option. Also mentioned, in both trimming examples, the choice of threshold might be arbitrary. More importantly, trimming results in increased bias in estimates, as well as a reduced sample size.
+
+As a final conceptual challenge to trimming methods, trimming results in an ambiguous target population that is difficult for stakeholders to interpret. In the NYC Schools example below, would generalizing the effect of gifted/talented programs to “schools that fall within the 85th quantile of the propensity score” be interpretable to policy makers? Taking the steps to translate the generalizability of an effect based on a certain subset of the PS distribution quickly becomes quantitatively convenient, but conceptually daunting at the policy level. This problem is especially of note under situations of heterogeneous treatment effects. When the treatment effects are constant across the distribution of the covariates, then weight trimming might be ok, but when the treatment effects vary across the distribution of covariates (such as lower income schools that benefit more from GT programs), then weight trimming is less than ideal.
+
+The distribution of the weights, the points to the right are extremely unlikely to have inclusion. We might remove these by truncating the weights at a maximum of 10.
+
+```{r fig.show = "hold", fig.width = 3.25}
+
+## distribution of weights
+ggplot(working_data, aes(x = iptw, fill = as.factor(treatment))) +
+   geom_density(alpha = 0.5, colour = "grey50") +
+   geom_rug() +
+   scale_x_log10(breaks = c(1, 5, 10, 20, 40)) +
+   theme(panel.background = element_rect(fill='white'),
+          legend.position = "none")+
+   ggtitle("Distribution of inverse probability weights: \n full data")
+# truncate weights
+trimmed_data <- working_data %>%
+  filter(iptw<10)
+## distribution of truncated weights
+ggplot(trimmed_data, aes(x = iptw, fill = as.factor(treatment))) +
+   geom_density(alpha = 0.5, colour = "grey50") +
+   geom_rug() +
+   scale_x_log10(breaks = c(1, 5, 10, 20, 40)) +
+  theme(panel.background = element_rect(fill='white'),
+        legend.position = "none")+
+   ggtitle("Distribution of inverse probability weights: \n trimmed data")
+# 
+# gl<- list(p1,p2)
+# grid.arrange(
+#   grobs = gl,
+#   top=textGrob("Weight Comparison"))
+
+mod4 <- lm(AllStudents_PA ~ treatment, weights = trimmed_data$iptw, data = trimmed_data)
+summary(mod4)
+```
+
+An advantage of overlap weighting is that overlap weights lead to exact balance on the mean of every measured covariate when the PS is estimated by logistic regression. All weights are bounded between 0 and 1 by design, eliminating the need for weight trimming. The approach might be particularly useful in the era of big data, where inclusion criteria is defined more broadly. Large data sources, with many possible covariates, also provoke the desire to clarify best practices for handling extreme propensity scores.
+
+A limitation, as with all other PS methods, is that researchers are at the whim of which covariates are available and included in the model. Additionally, the ATE is now in reference to the target population, which is the overlap population. The estimation of the treatment could be for a sub-population that does not reflect people who receive the treatment in routine service. In the NYC schools example, we might be estimating people who have no chance of the treatment.
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+
+
+### the PSweight package
+working_data <- read_csv("data/working_data.csv")
+out.formula <- Y~PercentBlack + PercentSWD + PercentPoverty+TotalEnrollment+
+  ENI
+#train on model with treatment group 1
+data1<- working_data %>%
+  select(treatment, PercentBlack, PercentSWD, PercentPoverty, TotalEnrollment,
+         ENI, AllStudents_PA, AllStudents_CA) %>%
+  rename(trt = treatment,
+         Y = AllStudents_PA,
+         Y2 = AllStudents_CA)
+data1 <- as.data.frame(data1)
+
+```
+
+```{r message=FALSE, warning=FALSE, include=TRUE, fig.width= 7, fig.height= 4}
+ps.formula<- trt~PercentBlack + PercentSWD + PercentPoverty+TotalEnrollment+
+  ENI
+msstat <- SumStat(ps.formula, trtgrp="1", data=data1,
+                  weight=c("IPW","overlap","treated","entropy","matching"))
+plot(msstat, type="balance", metric = "PSD")
+
+
+### PSweight to identify ATE for Overlap
+ate.any <- PSweight(ps.formula = ps.formula,
+                    yname = "Y", data = data1,
+                    weight= "overlap")
+ate.any
+summary(ate.any)
+```
+
+
+## Specification and Doubly Robust Methods
+
+The weighting methods are better than simply matching, since they retain all of the data. However, they are still vulnerable to model mis-specification and unobserved explanatory variables. If the causal model is improperly specified, there can be problems from weighting. In the doubly robust approach, you need to get at least one of the two models nearly right in order for weighting to help much. 
+
+## References
+
+
