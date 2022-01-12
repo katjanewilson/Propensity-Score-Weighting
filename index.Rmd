@@ -359,6 +359,8 @@ summary(ate.any)
 
 The weighting methods are better than simply matching, since they retain all of the data. However, they are still vulnerable to model mis-specification and unobserved explanatory variables. If the causal model is improperly specified, there can be problems from weighting. In the doubly robust approach, you need to get at least one of the two models nearly right in order for weighting to help much. 
 
+### add code on how to 
+
 ## References
 
 
