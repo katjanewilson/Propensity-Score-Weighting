@@ -20,7 +20,7 @@ knitr::opts_chunk$set(
 
 ## Introduction
 
-Matching is a class of observational study methods that reduces the influence of covariate bias by matching each treatment individual to one or more control unit. In the presence of many confounding variables, matching is facilitated by the propensity score, a balancing score that takes into account all measured covariates and assigns a probability of the unit being in the treatment or control group. From here, units can be matched in a variety of ways: nearest neighbor matching, full matching, and mahalanobis distance matching are some. In each of these methods, the goal is to “match” subjects on observable characteristics, making the treatment and control groups as similar as possible.
+Matching is a class of observational study methods that reduces the influence of covariate bias by matching each treatment individual to one or more control units. In the presence of many confounding variables, matching is facilitated by the propensity score, a balancing score that takes into account all measured covariates and assigns a probability of the unit being in either the treatment or control group. From here, units can be matched in a variety of ways: nearest neighbor matching, full matching, and mahalanobis distance matching are some. In each of these methods, the goal is to “match” subjects on observable characteristics, making the treatment and control groups as similar as possible.
 
 Matching on observable characteristics is crucial to achieving a balanced treatment and control sample, but trade offs of the matching method should be considered. For one, the study sample is now a fraction of the overall data in the population. Indeed, only units with a match are included in the analyses. Additionally, the Average Treatment Effect of the Treated (ATT) is, under these methods, only internally valid for the matched sample. Even more, the higher probability that some subjects have of being placed in the treatment group over other subjects being placed in the treatment group is inappropriately ignored. Such trade offs in matching might be addressed with a more nuanced treatment of the propensity score. 
 
@@ -71,7 +71,7 @@ working_data %>%
             n=n())
 ```
 
-This simple comparison is not fair, however, since the treatment (inclusion) is not randomized. Low-income, high-minority schools are more likely to have self-contained classrooms than high-income, low-minority schools. Additionally, schools with more students with special needs are more likely to have a self-contained option. These differences could be driving the attendance difference, rather than the effect of inclusion itself. 
+This is only a naive simple comparison, however, since the treatment (inclusion) is not randomized. Low-income, high-minority schools are more likely to have self-contained classrooms than high-income, low-minority schools. Additionally, schools with more students with special needs are more likely to have a self-contained option. These differences could be driving the attendance difference, rather than the effect of inclusion itself. 
 ```{r message=FALSE, warning=FALSE, include=TRUE}
 working_data %>%
   group_by(treatment) %>%
@@ -234,7 +234,7 @@ Referring back to our population of NYC public schools, the set of five measured
 
 **Inverse Probability Treatment Weighting**
 
-Given the non-linear relationship of three covaraites with treatment assignment, I use a generalized additive model (@hastie2017generalized) to identify the propensity score. IPTW and SW weights are calculated and attached to each observation. Note that the full sample size (N=623,147) is retained.
+Given the non-linear relationship of three covariates with treatment assignment, I use a generalized additive model (@hastie2017generalized) to identify the propensity score. IPTW and SW weights are calculated and attached to each observation. Note that the full sample size (N=623,147) is retained.
 
 ```{r message=FALSE, warning=FALSE, include=TRUE, fig.width= 6, fig.height= 6}
 library(gam)
@@ -287,7 +287,6 @@ As a final conceptual challenge to trimming methods, trimming results in an ambi
 The distribution of the weights, the points to the right are extremely unlikely to have inclusion. We might remove these by truncating the weights at a maximum of 10.
 
 ```{r, fig.show = "hold", fig.width = 3.25}
-
 ## distribution of weights
 ggplot(working_data, aes(x = iptw, fill = as.factor(treatment))) +
    geom_density(alpha = 0.5, colour = "grey50") +
@@ -357,9 +356,20 @@ summary(ate.any)
 
 ## Specification and Doubly Robust Methods
 
-Weighting methods improve upon naive matching, as we retain a majority of the sample. However, weighting methods are still vulnerable to model mis-specification. If the causal model is improperly specified, weighting won't do much to help the final causal estimation. The doubly-robust approach only requires one of the models (outcome or treatment model) to be correctly specified.
+Weighting methods improve upon naive matching, as we retain a majority of the sample. However, weighting methods are still vulnerable to model mis-specification. If the causal model is improperly specified, weighting won't do much to help the final causal estimation. 
 
-## Doubly Robust Methods
+The doubly-robust approach only requires one of the models (either the outcome or treatment model) to be correctly specified. The equation for the doubly robust estimator is given by
+
+$$
+ATE = \frac{1}{N}\sum(\frac{T_i(Y_i-\hat\mu_1(X_i))}{\hat{P}(X_i)} +\hat\mu(X_i)) - \frac{1}{N}\sum(\frac{(1-T_i)(Y_i - \hat\mu_0(X_i))}{1-\hat{P}(X_i)} + \hat\mu_0(X_i))
+$$
+
+where $\hat{P}$ represents the propensity score the estimation equation, and $\hat{\mu_0}$ represents the treatment effect, or the estimation of E[Y|X,T=0]. If the out model is correctly specified, then the expectation of $T_i(Y_i-\hat\mu(X_i))$ is 0. Multiplying by only the treated ($T_i$, the residuals on the estimation of $u_i$ become 0. With the numerator falling to 0, we correctly estimate E(Y) with $\hat\mu_1(X_i)$. When the outcome model is wrong but the propensity score model is correct, the equation again reduces, this time to only the propensity score estimator. In either case, when the propensity or outcome model is not correctly specified, the doubly robust estimatr still recovers the same ATE.
+
+
+## Coding Doubly Robust Estimator in R
+
+
 
 ## References
 
